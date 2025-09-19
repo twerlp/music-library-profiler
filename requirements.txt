@@ -1,2 +1,5 @@
 pyqt6
 pyinstaller
+numpy
+librosa
+mutagen

@@ -211,3 +211,6 @@ dev_ignore/
 
 # User configuration files for this program
 config/
+
+# User generated database files
+database/
