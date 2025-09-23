@@ -9,7 +9,7 @@ def project_path(relative_path):
         # PyInstaller bundle
         base_path = Path(sys._MEIPASS)
     else:
-        # Development - go up from utils to src, then to assets
+        # Development - go up from utils to src
         base_path = Path(__file__).parent.parent.parent
     
     return base_path / relative_path

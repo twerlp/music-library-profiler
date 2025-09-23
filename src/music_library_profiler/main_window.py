@@ -1,12 +1,14 @@
 # main_window.py - The main application window for Music Library Profiler.
-from PyQt6.QtWidgets import QMainWindow, QLabel, QPushButton, QVBoxLayout, QWidget, QProgressBar
+from PyQt6.QtWidgets import (QMainWindow, QLabel, QPushButton, QVBoxLayout, 
+                             QWidget, QProgressBar, QScrollArea)
 from PyQt6.QtGui import QIcon, QFont
 from PyQt6.QtCore import Qt, QThread
 
 from core.config_manager import ConfigManager
+from core.database import Database
 import utils.resource_manager as rm
 from widgets.directory_selector import DirectorySelector
-from core.scanner import Scanner
+from widgets.scrollable_tracklist import DynamicScrollWidget
 from workers.scan_worker import ScanWorker
 
 import logging
@@ -15,6 +17,7 @@ from pathlib import Path
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.database = Database()
         self.config = ConfigManager()
         self._init_ui()
         self._load_config()
@@ -66,6 +69,22 @@ class MainWindow(QMainWindow):
         # Add status label
         self.status_label = QLabel()
         layout.addWidget(self.status_label)
+
+        # Add scrollable track list
+        self.scroll_widget = DynamicScrollWidget(self.database)
+
+        total_height = self.database.count_number_of_tracks() * 40  # item height
+        self.scroll_widget.setFixedHeight(total_height)
+        
+        scroll_area = QScrollArea()
+        scroll_area.setWidget(self.scroll_widget)
+        scroll_area.setWidgetResizable(True)
+        
+        # scroll_bar = scroll_area.verticalScrollBar()
+        # scroll_bar.setRange(0, self.database.count_number_of_tracks() * 7)
+        # scroll_bar.valueChanged.connect(self._on_scroll_value_changed)
+        
+        layout.addWidget(scroll_area)
         
         # Add stretch to push content to top
         layout.addStretch()
@@ -77,6 +96,14 @@ class MainWindow(QMainWindow):
             self.x(), self.y(), self.width(), self.height()
         ])
         event.accept()
+    
+    # def _on_scroll_value_changed(self, value):
+    #     scroll_bar = self.sender()
+    #     print(f"Scroll bar value changed: {value}")
+    #     if scroll_bar and scroll_bar.maximum() > 0:
+    #         position_percent = (value / scroll_bar.maximum()) * 100
+    #         print(f"Scrolling to {position_percent}%")
+    #         self.scroll_widget.scroll_to(position_percent)
     
     def _load_config(self):
         """Load configuration settings."""
@@ -109,7 +136,7 @@ class MainWindow(QMainWindow):
         self.status_label.setText("Scanning in progress...")
         
         # Initialize scanner and worker thread
-        self.scan_worker = ScanWorker(Path(directory))
+        self.scan_worker = ScanWorker(Path(directory), self.database)
 
         self.scan_thread = QThread()
         self.scan_worker.moveToThread(self.scan_thread)
@@ -167,4 +194,4 @@ class MainWindow(QMainWindow):
         """Update UI state based on scanning status"""
         self.scan_button.setEnabled(not scanning)
         self.progress_bar.setVisible(scanning)
-        # self.cancel_button.setVisible(scanning)  # Add cancel button
+        # self.cancel_button.setVisible(scanning)  # TODO: Add cancel button

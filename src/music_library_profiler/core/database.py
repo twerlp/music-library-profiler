@@ -54,12 +54,52 @@ class Database:
                 cursor = conn.execute('SELECT * FROM tracks')
                 tracks = []
                 for row in cursor.fetchall():
-                    track = {const.METADATA_FIELD_TYPES.keys()[i]: row[i] for i in range(len(const.METADATA_FIELD_TYPES.keys()))}
+                    track = {list(const.METADATA_FIELD_TYPES.keys())[i]: row[i] for i in range(len(const.METADATA_FIELD_TYPES.keys()))}
                     tracks.append(track)
                 return tracks
         except Exception as e:
             print(f"Error fetching tracks: {e}")
-            return []            
+            return []
+    
+    def count_number_of_tracks(self):
+        """Return the total number of tracks in the database."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute('SELECT COUNT(*) FROM tracks')
+                count = cursor.fetchone()[0]
+                return count
+        except Exception as e:
+            print(f"Error counting tracks: {e}")
+            return 0
+        
+    def get_range_of_tracks(self, offset, limit):
+        """Fetch a range of tracks."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                print(f"Fetching tracks with offset {offset} and limit {limit}")
+                cursor = conn.execute('SELECT * FROM tracks LIMIT ? OFFSET ?', (limit, offset))
+                tracks = []
+                for row in cursor.fetchall():
+                    track = {list(const.METADATA_FIELD_TYPES.keys())[i]: row[i] for i in range(len(const.METADATA_FIELD_TYPES.keys()))}
+                    tracks.append(track)
+                return tracks
+        except Exception as e:
+            print(f"Error fetching range of tracks: {e}")
+            return []
+    
+    def get_track_by_id(self, track_id):
+        """Fetch a single track by its ID."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute('SELECT * FROM tracks WHERE id = ?', (track_id,))
+                row = cursor.fetchone()
+                if row:
+                    track = {const.METADATA_FIELD_TYPES.keys()[i]: row[i] for i in range(len(const.METADATA_FIELD_TYPES.keys()))}
+                    return track
+                return None
+        except Exception as e:
+            print(f"Error fetching track by ID {track_id}: {e}")
+            return None
 
     def start_scan(self, directory):
         """Log the start of a scan session."""

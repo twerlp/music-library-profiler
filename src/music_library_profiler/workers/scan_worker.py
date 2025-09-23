@@ -13,10 +13,10 @@ class ScanWorker(QObject):
     finished = pyqtSignal(dict)           # results dictionary
     error = pyqtSignal(str)               # error message
     
-    def __init__(self, directory: Path):
+    def __init__(self, directory: Path, database):
         """Initialize worker with scanner and directory (main thread)"""
         super().__init__()
-        self.scanner = Scanner(directory)
+        self.scanner = Scanner(directory, database)
         self.scanner.set_progress_callback(self._on_progress)
         self.directory = directory
         self._is_cancelled = False

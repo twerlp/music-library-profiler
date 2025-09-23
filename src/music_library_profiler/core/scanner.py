@@ -7,9 +7,9 @@ from core.metadata_reader import MetadataReader
 import utils.file_helpers as fh
 
 class Scanner:
-    def __init__(self, directory):
+    def __init__(self, directory, database):
         self.directory = directory
-        self.database = Database()
+        self.database = database
         self.metadata_reader = MetadataReader()
         self.feature_extractor = None  # Placeholder for audio feature extractor
         self.progress_callback: Optional[Callable] = None

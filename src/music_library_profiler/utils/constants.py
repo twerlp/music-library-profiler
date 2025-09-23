@@ -6,6 +6,7 @@ SUPPORTED_AUDIO_EXTENSIONS = {".wav", ".aiff", "aif", ".aifc", ".m4a", ".aac", "
                               ".ogg", ".oga", ".opus", ".mp3"}
 
 # Metadata fields and their SQL types 
+# Stretch goal, add support for images embedded in tags ('APIC:' for ID3, 'covr' for MP4), type BLOB
 METADATA_FIELD_TYPES = {
     "title": "TEXT",
     "artist": "TEXT",
