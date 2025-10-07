@@ -1,6 +1,7 @@
 # Music Library Profiler
 
-Compiles information about your music library--namely BPM and key.
+* Compiles information about your music library--namely BPM and the pitch class profile.
+* Allows you to enter a song and find similar ones in your local library.
 
 ## Description
 
