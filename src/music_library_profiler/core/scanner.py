@@ -1,13 +1,15 @@
 # scanner.py - Scans directory for audio files, extracts metadata, runs the audio analyzer, and stores info in database.
-from typing import Optional, Callable
+from typing import Optional, Callable, List, Any, Dict
 import logging
 import datetime
+
 from core.database import Database
 from core.metadata_reader import MetadataReader
+import core.audio_feature_extractor as afe
 import utils.file_helpers as fh
 
 class Scanner:
-    def __init__(self, directory, database):
+    def __init__(self, directory, database: Database):
         self.directory = directory
         self.database = database
         self.metadata_reader = MetadataReader()
@@ -25,6 +27,7 @@ class Scanner:
         #TODO: Error handling and logging
         #TODO: Progress reporting
         #TODO: Multithreading for speed
+        #TODO: Insert metadata and features in database in large chunks to reduce writes to disk
 
         music_files = fh.find_music_files(self.directory)
         total_files = len(music_files)
@@ -69,7 +72,7 @@ class Scanner:
             #TODO: Extract audio features
             # features = self.feature_extractor.extract_features(file_path)
             #TODO: Store metadata and features in database
-            self.database.insert_track(metadata)
+            self.database.insert_track_metadata(metadata)
             results["successful_files"] += 1
             if metadata.get("bpm"):
                 results["tracks_with_bpm"] += 1
@@ -82,6 +85,10 @@ class Scanner:
             successful_files=results["successful_files"],
             errors=len(results["errors"])
         )
+
+        # TODO: Scan HPCP as separate button click?
+        afe.find_hpcp_of_file_list(music_files, database=self.database)
+
         logging.info("Scanning complete.")
         logging.info(f"Processed {total_files} files.")
 

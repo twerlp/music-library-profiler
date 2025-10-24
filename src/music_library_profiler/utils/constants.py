@@ -29,3 +29,27 @@ METADATA_FIELD_TYPES = {
     "last_accessed": "DOUBLE",
     "created": "DOUBLE"
 }
+
+# Twelve-tone scale
+CHROMATIC_SCALE = ['C', 'C#', 'D', 'D#', 'E', 'F',
+                  'F#', 'G', 'G#', 'A', 'A#', 'B']
+
+# 7-note subsets of chromatic scale, listed with number of semitones between each note in scale
+HEPTATONIC_SCALES = {
+    "Major": [2, 2, 1, 2, 2, 2, 1],
+    "Natural Minor": [2, 1, 2, 2, 1, 2, 2],
+    "Harmonic Minor": [2, 1, 2, 2, 1, 3, 1],
+    "Melodic Minor": [2, 1, 2, 2, 2, 2, 1],
+    "Dorian": [2, 1, 2, 2, 2, 1, 2],
+    "Phrygian": [1, 2, 2, 2, 1, 2, 2],
+    "Lydian": [2, 2, 2, 1, 2, 2, 1],
+    "Mixolydian": [2, 2, 1, 2, 2, 1, 2],
+    "Locrian": [1, 2, 2, 1, 2, 2, 2]
+}
+
+
+ 
+# Weights for major/natural minor from Kumhansl and Schmuckler
+MAJOR_PROFILE = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88]
+MINOR_PROFILE = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17]
+

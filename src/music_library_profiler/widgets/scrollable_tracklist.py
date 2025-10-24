@@ -4,6 +4,7 @@ from pathlib import Path
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QLabel, QFrame, QHBoxLayout)
 from PyQt6.QtCore import Qt, QSize
 import logging
+from core.database import Database
 
 '''
 My ideal solution for this is to have a dynamically loaded scroller, meaning
@@ -97,7 +98,7 @@ class DynamicScrollWidget(QWidget):
 
 class DataProvider:
     """Data provider gathers data for the scrollable list from the sqlite database."""
-    def __init__(self, database):
+    def __init__(self, database: Database):
         self.database = database
         self.refresh_total_count()
     
@@ -110,7 +111,7 @@ class DataProvider:
     
     def get_item(self, index):
         if 0 <= index < self.length:
-            return self.database.get_track_by_id(index)
+            return self.database.get_track_metadata_by_id(index)
         return None
 
     def get_range(self, start, count):
@@ -118,10 +119,10 @@ class DataProvider:
             return []
         if start + count > self.length:
             count = self.length - start
-        return self.database.get_range_of_tracks(start, count)
+        return self.database.get_range_of_track_metadata(start, count)
     
     def get_all(self):
-        return self.database.fetch_all_tracks()
+        return self.database.fetch_all_track_metadata()
         
         
 
