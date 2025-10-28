@@ -159,7 +159,8 @@ class Database:
                 cursor = conn.execute('SELECT * FROM track_metadata')
                 tracks = []
                 for row in cursor.fetchall():
-                    track = {list(const.METADATA_FIELD_TYPES.keys())[i]: row[i] for i in range(len(const.METADATA_FIELD_TYPES.keys()))}
+                    # row[i+1] to avoid first id column
+                    track = {list(const.METADATA_FIELD_TYPES.keys())[i]: row[i+1] for i in range(len(const.METADATA_FIELD_TYPES.keys()))}
                     tracks.append(track)
                 return tracks
         except Exception as e:
@@ -174,7 +175,8 @@ class Database:
                 cursor = conn.execute('SELECT * FROM track_metadata LIMIT ? OFFSET ?', (limit, offset))
                 tracks = []
                 for row in cursor.fetchall():
-                    track = {list(const.METADATA_FIELD_TYPES.keys())[i]: row[i] for i in range(len(const.METADATA_FIELD_TYPES.keys()))}
+                    # row[i+1] to avoid first id column
+                    track = {list(const.METADATA_FIELD_TYPES.keys())[i]: row[i+1] for i in range(len(const.METADATA_FIELD_TYPES.keys()))}
                     tracks.append(track)
                 return tracks
         except Exception as e:
@@ -188,7 +190,8 @@ class Database:
                 cursor = conn.execute('SELECT * FROM track_metadata WHERE id = ?', (track_id,))
                 row = cursor.fetchone()
                 if row:
-                    track = {const.METADATA_FIELD_TYPES.keys()[i]: row[i] for i in range(len(const.METADATA_FIELD_TYPES.keys()))}
+                    # row[i+1] to avoid first id column
+                    track = {const.METADATA_FIELD_TYPES.keys()[i]: row[i+1] for i in range(len(const.METADATA_FIELD_TYPES.keys()))}
                     return track
                 return None
         except Exception as e:
