@@ -20,7 +20,7 @@ METADATA_FIELD_TYPES = {
     "bitrate": "INTEGER",
     "sample_rate": "INTEGER",
     "channels": "INTEGER",
-    "file_path": "TEXT",
+    "file_path": "TEXT UNIQUE",
     "file_name": "TEXT",
     "directory": "TEXT",
     "extension": "TEXT",
