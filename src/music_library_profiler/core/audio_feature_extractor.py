@@ -55,6 +55,7 @@ def find_hpcp_of_file(audio_file_path: Path) -> np.ndarray:
     audio_time_series, sampling_rate = load_audio_file(audio_file_path)
     audio_time_series_clean, _ = librosa.effects.trim(audio_time_series, top_db=20) # Removes silence
 
+    # Gather chromagram -- basically usage of each chromatic note throughout the song
     chroma = librosa.feature.chroma_cens(
         y=audio_time_series_clean,
         sr=sampling_rate,
@@ -100,26 +101,22 @@ def find_hpcp_of_file_list_parallel_cpu(
             "stored": number of files successfully stored,
             "errors": number of errors
     """
-    # Note: This requires that find_hpcp_of_file and dependencies are picklable
-    # You may need to move the function to module level if it's not already
-    
     if track_mapping is None:
         track_mapping = {}
 
     logger.info(f"Starting CPU-parallel HPCP extraction for {len(track_list)} tracks with {max_workers} workers")
 
     with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
-        # The rest of the implementation is similar to the ThreadPoolExecutor version
-        # but we need to be careful about what gets pickled
+        # Submit HPCP work to the cores
         future_to_file = {
             executor.submit(find_hpcp_of_file, file_path): file_path 
             for file_path in track_list
         }
 
-        current_batch = {}
-        total_processed = 0
-        total_stored = 0
-        errors = []
+        current_batch = {} # HPCP results for the current batch, indexed by file path
+        total_processed = 0 # Total files which successfully gathered HPCP data
+        total_stored = 0 # Total files which successfully stored HPCP data
+        errors = [] # Errors generated during execution
 
         for i, future in enumerate(concurrent.futures.as_completed(future_to_file)):
             file_path = future_to_file[future]
