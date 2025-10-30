@@ -12,6 +12,7 @@ import numpy as np
 from pathlib import Path
 import matplotlib.pyplot as plt
 import logging
+import concurrent.futures
 
 from core.database import Database
 
@@ -71,6 +72,103 @@ def find_hpcp_of_file(audio_file_path: Path) -> np.ndarray:
     # plot_hpcp(hpcp)
 
     return hpcp
+
+def find_hpcp_of_file_list_parallel_cpu(
+    track_list: List[Path], 
+    database: Database, 
+    track_mapping: Dict[str, int] = None, 
+    batch_size: int = 128, 
+    max_workers: int = None,
+    progress_callback: Callable = None
+) -> Dict[str, Any]:
+    """
+    Extract HPCP for multiple files and store using track_ids in a streaming fashion.
+    Multicore execution.
+    
+    Args:
+        track_list: List of file paths to process
+        database: Database instance for storage
+        track_mapping: Optional pre-computed {file_path: track_id} mapping
+        batch_size: Number of tracks to process before writing to database
+        max_workers: Number of cores to use
+        progress_callback: Optional callback for progress updates
+    
+    Returns:
+        Processing data as a dictionary
+            "total_files": number of files,
+            "processed": number of files successfully processed,
+            "stored": number of files successfully stored,
+            "errors": number of errors
+    """
+    # Note: This requires that find_hpcp_of_file and dependencies are picklable
+    # You may need to move the function to module level if it's not already
+    
+    if track_mapping is None:
+        track_mapping = {}
+
+    logger.info(f"Starting CPU-parallel HPCP extraction for {len(track_list)} tracks with {max_workers} workers")
+
+    with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+        # The rest of the implementation is similar to the ThreadPoolExecutor version
+        # but we need to be careful about what gets pickled
+        future_to_file = {
+            executor.submit(find_hpcp_of_file, file_path): file_path 
+            for file_path in track_list
+        }
+
+        current_batch = {}
+        total_processed = 0
+        total_stored = 0
+        errors = []
+
+        for i, future in enumerate(concurrent.futures.as_completed(future_to_file)):
+            file_path = future_to_file[future]
+            if progress_callback and i % 10 == 0:
+                progress_callback(i, len(track_list), f"Processing {file_path.name}")
+            
+            try:
+                hpcp_data = future.result()
+                if hpcp_data is not None:
+                    current_batch[file_path] = hpcp_data
+                    total_processed += 1
+                else:
+                    logger.warning(f"No HPCP data extracted for {file_path}")
+                    errors.append(f"No HPCP data: {file_path}")
+                
+                # Store to database if we have reached the batch size
+                if len(current_batch) >= batch_size:
+                    stored_in_batch = _process_and_store_batch(current_batch, database, track_mapping)
+                    total_stored += stored_in_batch
+                    current_batch.clear()
+                    logger.debug(f"Processed batch: {i+1}/{len(track_list)} files, stored {stored_in_batch} HPCP fingerprints")
+
+            except Exception as e:
+                error_msg = f"Error processing {file_path}: {e}"
+                errors.append(error_msg)
+                logger.exception(error_msg)
+                continue
+    
+    # Store stragglers (final batch) to database
+    if current_batch:
+        stored_in_batch = _process_and_store_batch(current_batch, database, track_mapping)
+        total_stored += stored_in_batch
+        logger.debug(f"Processed batch: {i+1}/{len(track_list)} files, stored {stored_in_batch} HPCP fingerprints")
+
+    logger.info(f"HPCP extraction complete. Processed: {total_processed}, Stored: {total_stored}, Errors: {len(errors)}")
+
+    if errors:
+        logger.warning(f"Encountered {len(errors)} errors during HPCP extraction")
+
+    if progress_callback:
+        progress_callback(len(track_list), len(track_list), "HPCP extraction complete!")
+
+    return {
+        "total_files": len(track_list),
+        "processed": total_processed,
+        "stored": total_stored,
+        "errors": len(errors)
+    }
+
 
 # Profile a given list of tracks and place them in our database
 def find_hpcp_of_file_list(track_list: List[Path], 

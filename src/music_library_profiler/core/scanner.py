@@ -87,7 +87,7 @@ class Scanner:
         )
 
         # TODO: Scan HPCP as separate button click?
-        afe.find_hpcp_of_file_list(music_files, database=self.database)
+        afe.find_hpcp_of_file_list_parallel_cpu(music_files, database=self.database, progress_callback=self.progress_callback)
 
         logging.info("Scanning complete.")
         logging.info(f"Processed {total_files} files.")
