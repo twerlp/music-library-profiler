@@ -1,17 +1,20 @@
 # scanner.py - Scans directory for audio files, extracts metadata, runs the audio analyzer, and stores info in database.
 from typing import Optional, Callable, List, Any, Dict
+from pathlib import Path
 import logging
 import datetime
 
 from core.database import Database
 from core.metadata_reader import MetadataReader
+from core.track_similarity import TrackSimilarity
 import core.audio_feature_extractor as afe
 import utils.file_helpers as fh
 
 class Scanner:
-    def __init__(self, directory, database: Database):
+    def __init__(self, directory: Path, database: Database, track_similarity: TrackSimilarity):
         self.directory = directory
         self.database = database
+        self.track_similarity = track_similarity
         self.metadata_reader = MetadataReader()
         self.feature_extractor = None  # Placeholder for audio feature extractor
         self.progress_callback: Optional[Callable] = None
@@ -22,13 +25,6 @@ class Scanner:
 
     def scan_directory(self):
         """Scan the directory for audio files, extract metadata and features, and store in database."""
-        #TODO: Implement database interactions--gather existing entries, insert new ones
-        #TODO: Handle duplicates
-        #TODO: Error handling and logging
-        #TODO: Progress reporting
-        #TODO: Multithreading for speed
-        #TODO: Insert metadata and features in database in large chunks to reduce writes to disk
-
         music_files = fh.find_music_files(self.directory)
         total_files = len(music_files)
 
@@ -69,8 +65,6 @@ class Scanner:
                 results["failed_files"] += 1
                 logging.error(f"Error reading metadata for {file_path}: {e}")
                 continue
-            #TODO: Extract audio features
-            # features = self.feature_extractor.extract_features(file_path)
             #TODO: Store metadata and features in database
             self.database.insert_track_metadata(metadata)
             results["successful_files"] += 1
@@ -87,7 +81,7 @@ class Scanner:
         )
 
         # TODO: Scan HPCP as separate button click?
-        afe.find_hpcp_of_file_list_parallel_cpu(music_files, database=self.database, progress_callback=self.progress_callback)
+        afe.find_hpcp_of_file_list_parallel_cpu(track_list=music_files, database=self.database, progress_callback=self.progress_callback, track_similarity=self.track_similarity)
 
         logging.info("Scanning complete.")
         logging.info(f"Processed {total_files} files.")

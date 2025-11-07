@@ -15,12 +15,15 @@ import logging
 import concurrent.futures
 
 from core.database import Database
+from core.track_similarity import TrackSimilarity
 
 logger = logging.getLogger(__name__)
 
 CHROMATIC_SCALE = ['C', 'C#', 'D', 'D#', 'E', 'F',
                   'F#', 'G', 'G#', 'A', 'A#', 'B']
-SAMPLING_RATE = 44100
+SAMPLING_RATE = 22050
+
+#TODO: Probably should put this in a class
 
 # Potentially Essentia has a better method
 def find_bpm_of_file(audio_file_path: Path):
@@ -60,8 +63,8 @@ def find_hpcp_of_file(audio_file_path: Path) -> np.ndarray:
         y=audio_time_series_clean,
         sr=sampling_rate,
         n_chroma=12,
-        n_octaves=9,
-        bins_per_octave=48,
+        n_octaves=7,
+        bins_per_octave=36,
         tuning=librosa.pitch_tuning(audio_time_series_clean)
     )
 
@@ -77,6 +80,7 @@ def find_hpcp_of_file(audio_file_path: Path) -> np.ndarray:
 def find_hpcp_of_file_list_parallel_cpu(
     track_list: List[Path], 
     database: Database, 
+    track_similarity: TrackSimilarity,
     track_mapping: Dict[str, int] = None, 
     batch_size: int = 128, 
     max_workers: int = None,
@@ -101,6 +105,8 @@ def find_hpcp_of_file_list_parallel_cpu(
             "stored": number of files successfully stored,
             "errors": number of errors
     """
+    # TODO: Pass elements which already have HPCP data
+
     if track_mapping is None:
         track_mapping = {}
 
@@ -134,7 +140,10 @@ def find_hpcp_of_file_list_parallel_cpu(
                 
                 # Store to database if we have reached the batch size
                 if len(current_batch) >= batch_size:
-                    stored_in_batch = _process_and_store_batch(current_batch, database, track_mapping)
+                    stored_in_batch = _process_and_store_batch(hpcp_batch=current_batch, 
+                                                               database=database, 
+                                                               track_mapping=track_mapping, 
+                                                               track_similarity=track_similarity)
                     total_stored += stored_in_batch
                     current_batch.clear()
                     logger.debug(f"Processed batch: {i+1}/{len(track_list)} files, stored {stored_in_batch} HPCP fingerprints")
@@ -147,96 +156,15 @@ def find_hpcp_of_file_list_parallel_cpu(
     
     # Store stragglers (final batch) to database
     if current_batch:
-        stored_in_batch = _process_and_store_batch(current_batch, database, track_mapping)
+        stored_in_batch = _process_and_store_batch(hpcp_batch=current_batch, 
+                                                   database=database, 
+                                                   track_mapping=track_mapping, 
+                                                   track_similarity=track_similarity)
         total_stored += stored_in_batch
         logger.debug(f"Processed batch: {i+1}/{len(track_list)} files, stored {stored_in_batch} HPCP fingerprints")
 
-    logger.info(f"HPCP extraction complete. Processed: {total_processed}, Stored: {total_stored}, Errors: {len(errors)}")
-
-    if errors:
-        logger.warning(f"Encountered {len(errors)} errors during HPCP extraction")
-
-    if progress_callback:
-        progress_callback(len(track_list), len(track_list), "HPCP extraction complete!")
-
-    return {
-        "total_files": len(track_list),
-        "processed": total_processed,
-        "stored": total_stored,
-        "errors": len(errors)
-    }
-
-
-# Profile a given list of tracks and place them in our database
-def find_hpcp_of_file_list(track_list: List[Path], 
-                           database: Database, 
-                           track_mapping: Dict[str, int] = None, 
-                           batch_size: int = 128, 
-                           progress_callback: Callable = None) -> Dict[str, int]:
-    """
-    Extract HPCP for multiple files and store using track_ids in a streaming fashion.
-    
-    Args:
-        track_list: List of file paths to process
-        database: Database instance for storage
-        track_mapping: Optional pre-computed {file_path: track_id} mapping
-        batch_size: Number of tracks to process before writing to database
-        progress_callback: Optional callback for progress updates
-    
-    Returns:
-        Processing data as a dictionary
-            "total_files": number of files,
-            "processed": number of files successfully processed,
-            "stored": number of files successfully stored,
-            "errors": number of errors
-    """
-
-    # TODO: Load/parse data in parallel (also the option of streaming the data with essentia if we really want to lower memory usage...)
-    current_batch = {}
-    total_processed = 0
-    total_stored = 0
-    errors = []
-
-    if track_mapping is None:
-        track_mapping = {}
-
-    logger.info(f"Starting HPCP extraction for {len(track_list)} tracks with batch size {batch_size}")
-
-    # Process in batches and store results to database
-    for i, file_path in enumerate(track_list):
-        try:
-            if progress_callback and i % 10 == 0:  # Report progress every 10 files
-                progress_callback(i, len(track_list), f"Processing {file_path.name}")
-            
-            # Extract the HPCP for current file
-            hpcp_data = find_hpcp_of_file(file_path)
-
-            if hpcp_data is not None:
-                current_batch[file_path] = hpcp_data
-                total_processed += 1
-            else:
-                logger.warning(f"No HPCP data extracted for {file_path}")
-                errors.append(f"No HPCP data: {file_path}")
-            
-            # Store to database if we have reached the batch size
-            if len(current_batch) >= batch_size:
-                stored_in_batch = _process_and_store_batch(current_batch, database, track_mapping)
-                total_stored += stored_in_batch
-                current_batch.clear()
-                logger.debug(f"Processed batch: {i+1}/{len(track_list)} files, stored {stored_in_batch} HPCP fingerprints")
-        
-        except Exception as e:
-            error_msg = f"Error extracting HPCP for {file_path}: {e}"
-            logger.exception(error_msg)
-            errors.append(error_msg)
-            continue
-    
-    # Store stragglers (final batch) to database
-    if current_batch:
-        stored_in_batch = _process_and_store_batch(current_batch, database, track_mapping)
-        total_stored += stored_in_batch
-        logger.debug(f"Processed batch: {i+1}/{len(track_list)} files, stored {stored_in_batch} HPCP fingerprints")
-
+    # Write the index to disk
+    track_similarity.save_index()
     logger.info(f"HPCP extraction complete. Processed: {total_processed}, Stored: {total_stored}, Errors: {len(errors)}")
 
     if errors:
@@ -254,6 +182,7 @@ def find_hpcp_of_file_list(track_list: List[Path],
 
 def _process_and_store_batch(hpcp_batch: Dict[Path, np.ndarray], 
                              database: Database, 
+                             track_similarity: TrackSimilarity,
                              track_mapping: Dict[str, int]) -> int:
     """
     Process a batch of HPCP data and store in database.
@@ -290,6 +219,7 @@ def _process_and_store_batch(hpcp_batch: Dict[Path, np.ndarray],
     # Store the batch
     if track_hpcp_data:
         success_count = database.batch_insert_hpcp(track_hpcp_data)
+        track_similarity.index_HPCP(hpcp_dict=track_hpcp_data)
         if success_count != len(track_hpcp_data):
             logger.warning(f"Batch storage: expected {len(track_hpcp_data)}, got {success_count}")
         return success_count
@@ -311,7 +241,7 @@ def load_audio_file(audio_file_path: Path):
         audio_time_series: The audio time series as an np.ndarray
         sampling_rate: Sampling rate of audio_time_series
     """
-    audio_time_series, sampling_rate = librosa.load(audio_file_path, sr=SAMPLING_RATE)
+    audio_time_series, sampling_rate = librosa.load(path=audio_file_path, sr=SAMPLING_RATE, mono=True)
     return audio_time_series, sampling_rate
 
 def plot_fft(frequencies, magnitudes):

@@ -214,3 +214,6 @@ config/
 
 # User generated database files
 database/
+
+# User generated index files for FIASS
+indexes/

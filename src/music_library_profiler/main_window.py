@@ -6,6 +6,7 @@ from PyQt6.QtCore import Qt, QThread
 
 from core.config_manager import ConfigManager
 from core.database import Database
+from core.track_similarity import TrackSimilarity
 import utils.resource_manager as rm
 from widgets.directory_selector import DirectorySelector
 from widgets.scrollable_tracklist import DynamicScrollWidget
@@ -14,11 +15,14 @@ from workers.scan_worker import ScanWorker
 import logging
 from pathlib import Path
 
+#TODO: Implement feature for choosing a song to compare similarity to
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.database = Database()
         self.config = ConfigManager()
+        self.track_similairty = TrackSimilarity(self.database)
         self._init_ui()
         self._load_config()
     
@@ -26,7 +30,9 @@ class MainWindow(QMainWindow):
         """Initialize the main window UI components."""
         self.setWindowTitle("Music Library Profiler")
         self.statusBar().showMessage("Ready")
-        
+
+        #TODO: Replace this with the track similarity button, this is purely for debug purposes
+        self.track_similairty.find_similar_tracks_to("/home/twerp/Music/Michael Bolton - Soul Provider/03 - Michael Bolton - It's Only My Heart.mp3", 100)
         # Create menu
         # file_menu = self.menuBar().addMenu("File")
         
@@ -136,7 +142,7 @@ class MainWindow(QMainWindow):
         self.status_label.setText("Scanning in progress...")
         
         # Initialize scanner and worker thread
-        self.scan_worker = ScanWorker(Path(directory), self.database)
+        self.scan_worker = ScanWorker(directory=Path(directory), database=self.database, track_similarity=self.track_similairty)
 
         self.scan_thread = QThread()
         self.scan_worker.moveToThread(self.scan_thread)
