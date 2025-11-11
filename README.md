@@ -1,11 +1,11 @@
 # Music Library Profiler
 
-* Compiles information about your music library--namely BPM and the pitch class profile.
+* Compiles information about your music library--namely BPM and the harmonic pitch class profile.
 * Allows you to enter a song and find similar ones in your local library.
 
 ## Description
 
-Blahhh blahhh blahhh
+Placeholder
 
 ## Getting Started
 
@@ -16,15 +16,15 @@ Blahhh blahhh blahhh
 
 ### Installing
 
-* Erm just download it.
+* Placeholder
 
 ### Executing program
 
-* Erm just run it?
+* Placeholder
 
 ## Help
 
-No known issues because I'm perfect.
+Placeholder
 
 ## For Developers
 
@@ -43,7 +43,7 @@ Use Qt Designer if you wanna make it look pretty (pyqt6-tools). As of 9/15/25, i
 ## Version History
 
 * 0.0.0
-  * UNRELEASED!!!!!!!!!!!!!!
+  * Unreleased (placeholder)
 
 ## License
 
@@ -51,4 +51,4 @@ This project is licensed under the GLP License - see the LICENSE file for detail
 
 ## Acknowledgments
 
-Inspiration, code snippets, etc.
+Placeholder
