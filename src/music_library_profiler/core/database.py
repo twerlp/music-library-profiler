@@ -7,6 +7,7 @@ import numpy as np
 
 import utils.constants as const
 import utils.resource_manager as rm
+from core.features import Features
 
 logger = logging.getLogger(__name__)
 
@@ -42,11 +43,13 @@ class Database:
                     errors INTEGER
                 )
             ''')
-            # HPCP table
+            # Feature table
             conn.execute('''
-                CREATE TABLE IF NOT EXISTS track_hpcp (
+                CREATE TABLE IF NOT EXISTS track_features (
                     track_id INTEGER PRIMARY KEY,
                     hpcp_data BLOB NOT NULL,
+                    bpm_data DOUBLE,
+                    genre_data TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (track_id) REFERENCES track_metadata(id) ON DELETE CASCADE
                 )
@@ -67,51 +70,51 @@ class Database:
         except Exception as e:
             logger.error(f"Error inserting track {metadata.get("file_name")}: {e}")
 
-    # HPCP Methods
-    def insert_hpcp(self, track_id: int, hpcp_data: np.ndarray) -> bool:
-        """Store HPCP fingerprint for a single track."""
+    # Feature Methods
+    def insert_feature(self, track_id: int, feature_data: Features) -> bool:
+        """Store feature data for a single track."""
         try:
-            if hpcp_data is None:
-                logger.warning(f"No HPCP data provided for track {track_id}")
+            if feature_data is None:
+                logger.warning(f"No feature data provided for track {track_id}")
                 return False
                 
             # Convert to binary
-            hpcp_array = np.array(hpcp_data, dtype=np.float32)
+            hpcp_array = np.array(feature_data.hpcp, dtype=np.float32)
             hpcp_binary = sqlite3.Binary(hpcp_array.tobytes())
             
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute('''
-                    INSERT OR REPLACE INTO track_hpcp (track_id, hpcp_data)
-                    VALUES (?, ?)
-                ''', (track_id, hpcp_binary))
+                    INSERT OR REPLACE INTO track_features (track_id, hpcp_data, bpm_data)
+                    VALUES (?, ?, ?)
+                ''', (track_id, hpcp_binary, feature_data.bpm))
                 
             return True
             
         except Exception as e:
-            logger.error(f"Error storing HPCP for track {track_id}: {e}")
+            logger.error(f"Error storing feature data for track {track_id}: {e}")
             return False
 
-    def batch_insert_hpcp(self, hpcp_data_dict: Dict[int, np.ndarray]) -> Set:
+    def batch_insert_features(self, feature_data_dict: Dict[int, Features]) -> Set:
         """Store HPCP data for multiple tracks efficiently in a single transaction.
         
         Args:
-            hpcp_data_dict: Dictionary with {track_id: hpcp_array} pairs
+            feature_data_dict: Dictionary with {track_id: Features} pairs
         Returns:
             Set of the successfully stored files
         """
         try:
-            if not hpcp_data_dict:
+            if not feature_data_dict:
                 logger.warning("No HPCP data provided to batch_insert_hpcp")
                 return 0
                 
             # Convert all HPCP arrays to binary format
             data_tuples = []
-            for track_id, hpcp_array in hpcp_data_dict.items():
-                if hpcp_array is not None:
+            for track_id, features in feature_data_dict.items():
+                if features is not None:
                     try:
-                        hpcp_array = np.array(hpcp_array, dtype=np.float32)
+                        hpcp_array = np.array(features.hpcp, dtype=np.float32)
                         hpcp_binary = sqlite3.Binary(hpcp_array.tobytes())
-                        data_tuples.append((track_id, hpcp_binary))
+                        data_tuples.append((track_id, hpcp_binary, features.bpm))
                     except Exception as e:
                         logger.error(f"Error converting HPCP for track {track_id}: {e}")
                         continue
@@ -123,8 +126,8 @@ class Database:
             # Single transaction for all inserts
             with sqlite3.connect(self.db_path) as conn:
                 conn.executemany('''
-                    INSERT OR REPLACE INTO track_hpcp (track_id, hpcp_data)
-                    VALUES (?, ?)
+                    INSERT OR REPLACE INTO track_features (track_id, hpcp_data, bpm_data)
+                    VALUES (?, ?, ?)
                 ''', data_tuples)
                 
             logger.info(f"Successfully stored HPCP data for {len(data_tuples)} tracks")
@@ -136,32 +139,19 @@ class Database:
         except Exception as e:
             logger.error(f"Unexpected error in batch_insert_hpcp: {e}")
             return None
-    
-    def get_hpcp(self, track_id: int) -> Optional[np.ndarray]:
-        """Retrieve HPCP fingerprint for a track."""
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.execute('''
-                    SELECT hpcp_data FROM track_hpcp WHERE track_id = ?
-                ''', (track_id,))
-                result = cursor.fetchone()
-                if result:
-                    # Convert binary back to numpy array
-                    return np.frombuffer(result[0], dtype=np.float32)
-                return None
-        except Exception as e:
-            logger.error(f"Error retrieving HPCP for track {track_id}: {e}")
-            return None
         
-    def get_missing_hpcps(self, track_ids: List[int]) -> Tuple[Set[int], Set[int]]:
+    def get_missing_features(self, track_ids: List[int]) -> Tuple[Set[int], Set[int]]:
         if not track_ids:
-            return set()
+            return set(track_ids), set()
         try:
             with sqlite3.connect(self.db_path) as conn:
                 placeholders = ','.join(['?'] * len(track_ids))
 
                 cursor = conn.execute(
-                    f'SELECT track_id FROM track_hpcp WHERE track_id IN ({placeholders})', 
+                    f'''SELECT track_id FROM track_features WHERE track_id IN ({placeholders}) AND 
+                        hpcp_data IS NOT NULL AND 
+                        bpm_data IS NOT NULL
+                        ''', 
                     track_ids
                 )
                 found_ids = {row[0] for row in cursor.fetchall()}
@@ -169,15 +159,66 @@ class Database:
         except Exception as e:
             logger.error(f"Error checking track existence {track_ids}: {e}")
             return set(track_ids), set()  # Assume all are missing on error
-    
-    def get_all_hpcp(self) -> Dict[int, np.ndarray]:
-        """Retrieve all HPCP fingerprints."""
+        
+    def get_feature_by_id(self, track_id: int) -> Features:
+        """Retrieve features for a certain track."""
         try:
             with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.execute('''SELECT * FROM track_hpcp''')
+                cursor = conn.execute('''SELECT * FROM track_features WHERE track_id = ?''', 
+                                      (track_id,))
+                result = cursor.fetchone()
+                if result:
+                    hpcp = np.frombuffer(result[1], dtype=np.float32)
+                    bpm = result[2]
+                    genre = None
+                    features = Features(hpcp=hpcp, bpm=bpm, genre=genre)
+                    return features
+                return None
+        except Exception as e:
+            logger.error(f"Error retrieving features: {e}")
+            return None
+        
+    def get_features_by_ids(self, track_ids: List[int]) -> Dict[int, Features]:
+        """Retrieve features for a certain track."""
+        print(track_ids)
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                placeholders = ','.join(['?'] * len(track_ids))
+                cursor = conn.execute(
+                    f'SELECT * FROM track_features WHERE track_id IN ({placeholders})', 
+                    track_ids
+                    )
                 results = cursor.fetchall()
                 if results:
-                    return {result[0]: np.frombuffer(result[1], dtype=np.float32) for result in results}
+                    feature_list = {}
+                    for result in results:
+                        hpcp = np.frombuffer(result[1], dtype=np.float32)
+                        bpm = result[2]
+                        genre = None
+                        features = Features(hpcp=hpcp, bpm=bpm, genre=genre)
+                        feature_list[result[0]] = features
+                    return feature_list
+                print('shit')
+                return None
+        except Exception as e:
+            logger.error(f"Error retrieving features: {e}")
+            return None
+     
+    def get_all_features(self) -> Dict[int, Features]:
+        """Retrieve all features."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute('''SELECT * FROM track_features''')
+                results = cursor.fetchall()
+                if results:
+                    feature_dict = {}
+                    for result in results:
+                        hpcp = np.frombuffer(result[1], dtype=np.float32)
+                        bpm = result[2]
+                        genre = None
+                        features = Features(hpcp=hpcp, bpm=bpm, genre=genre)
+                        feature_dict[result[0]] = features
+                    return feature_dict
                 return None
         except Exception as e:
             logger.error(f"Error retrieving HPCPs: {e}")

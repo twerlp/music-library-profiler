@@ -7,7 +7,7 @@ import datetime
 from core.database import Database
 from core.metadata_reader import MetadataReader
 from core.track_similarity import TrackSimilarity
-import core.audio_feature_extractor as afe
+from core.audio_feature_extractor import AudioFeatureExtractor
 import utils.file_helpers as fh
 
 class Scanner:
@@ -104,7 +104,9 @@ class Scanner:
         }
 
         metadata_results = self._scan_metadata(music_files=music_files)
-        hpcp_results = afe.find_hpcp_of_file_list_parallel_cpu(track_list=music_files, database=self.database, progress_callback=self.progress_callback, track_similarity=self.track_similarity)
+        
+        afe = AudioFeatureExtractor(track_list=music_files, database=self.database, progress_callback=self.progress_callback, track_similarity=self.track_similarity)
+        hpcp_results = afe.find_features_of_list(batch_size=128, max_workers=8)
 
         if len(metadata_results["successful_files"]) and len(hpcp_results["successful_files"]):
             overall_results["successful_files"] = metadata_results["successful_files"] & hpcp_results["successful_files"]

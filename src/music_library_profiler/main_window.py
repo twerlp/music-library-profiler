@@ -34,7 +34,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Ready")
 
         #TODO: Replace this with the track similarity button, this is purely for debug purposes
-        self.track_similairty.find_similar_tracks_to("/home/twerp/Music/👁‍🗨📲 - 👁点击と👁/👁‍🗨📲 - 👁点击と👁 - 03 Satya तुम्हारे लिए Incense एक.mp3", 10)
+        self.track_similairty.find_similar_tracks_to("/home/twerp/Music/Windows 96 - Dated New Aesthetic/01 - Windows 96 - Nome Da Musica.mp3", 500)
         # Create menu
         # file_menu = self.menuBar().addMenu("File")
         
