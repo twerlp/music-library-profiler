@@ -6,7 +6,7 @@
 # Detecting both key and mode https://github.com/mrueda/music-key-detector/blob/main/music_key_detector.py
 # Using Essentia to detect key and scale using HPCP: https://essentia.upf.edu/tutorial_tonal_hpcpkeyscale.html (no great general key profile)
 
-from typing import Optional, Callable, List, Any, Dict
+from typing import Optional, Callable, List, Any, Dict, Set
 import librosa
 import numpy as np
 from pathlib import Path
@@ -81,7 +81,6 @@ def find_hpcp_of_file_list_parallel_cpu(
     track_list: List[Path], 
     database: Database, 
     track_similarity: TrackSimilarity,
-    track_mapping: Dict[str, int] = None, 
     batch_size: int = 128, 
     max_workers: int = None,
     progress_callback: Callable = None
@@ -100,132 +99,114 @@ def find_hpcp_of_file_list_parallel_cpu(
     
     Returns:
         Processing data as a dictionary
-            "total_files": number of files,
-            "processed": number of files successfully processed,
-            "stored": number of files successfully stored,
-            "errors": number of errors
+            "successful_files": number of files which were successfully stored to the database,
+            "errors": the errors we encountered
     """
-    # TODO: Pass elements which already have HPCP data
+    track_mapping = database.get_track_ids_by_paths(track_list)
 
-    if track_mapping is None:
-        track_mapping = {}
+    if not track_mapping:
+        logger.warning("Empty track mapping for HPCP data.")
+        return {
+            "successful_files": {},
+            "errors": ["No track mappings for HPCP data."]
+        }
+    inverse_mapping = {value: key for key, value in track_mapping.items()}
+    missing_hpcps, existing_hpcps = database.get_missing_hpcps(track_ids=list(track_mapping.values()))
 
-    logger.info(f"Starting CPU-parallel HPCP extraction for {len(track_list)} tracks with {max_workers} workers")
+    if not missing_hpcps:
+        return {
+            "successful_files": existing_hpcps,
+            "errors": []
+        }
+
+    logger.info(f"Starting CPU-parallel HPCP extraction for {len(missing_hpcps)} tracks with {max_workers} workers")
 
     with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
         # Submit HPCP work to the cores
-        future_to_file = {
-            executor.submit(find_hpcp_of_file, file_path): file_path 
-            for file_path in track_list
+        future_to_id = {
+            executor.submit(find_hpcp_of_file, inverse_mapping[track_id]): track_id 
+            for track_id in missing_hpcps
         }
 
         current_batch = {} # HPCP results for the current batch, indexed by file path
         total_processed = 0 # Total files which successfully gathered HPCP data
         total_stored = 0 # Total files which successfully stored HPCP data
         errors = [] # Errors generated during execution
+        successful_files = existing_hpcps
 
-        for i, future in enumerate(concurrent.futures.as_completed(future_to_file)):
-            file_path = future_to_file[future]
+        for i, future in enumerate(concurrent.futures.as_completed(future_to_id)):
+            track_id = future_to_id[future]
             if progress_callback and i % 10 == 0:
-                progress_callback(i, len(track_list), f"Processing {file_path.name}")
+                progress_callback(i, len(missing_hpcps), f"Processing {database.get_track_metadata_by_id(track_id)["file_name"]}")
             
             try:
                 hpcp_data = future.result()
                 if hpcp_data is not None:
-                    current_batch[file_path] = hpcp_data
+                    current_batch[track_id] = hpcp_data
                     total_processed += 1
                 else:
-                    logger.warning(f"No HPCP data extracted for {file_path}")
-                    errors.append(f"No HPCP data: {file_path}")
+                    logger.warning(f"No HPCP data extracted for {database.get_track_metadata_by_id(track_id)["file_name"]}")
+                    errors.append(f"No HPCP data: {database.get_track_metadata_by_id(track_id)["file_name"]}")
                 
                 # Store to database if we have reached the batch size
                 if len(current_batch) >= batch_size:
-                    stored_in_batch = _process_and_store_batch(hpcp_batch=current_batch, 
-                                                               database=database, 
-                                                               track_mapping=track_mapping, 
-                                                               track_similarity=track_similarity)
-                    total_stored += stored_in_batch
+                    stored_in_batch = _store_batch(hpcp_batch=current_batch, 
+                                                   database=database, 
+                                                   track_similarity=track_similarity)
+                    total_stored += len(stored_in_batch)
+                    successful_files | stored_in_batch
                     current_batch.clear()
-                    logger.debug(f"Processed batch: {i+1}/{len(track_list)} files, stored {stored_in_batch} HPCP fingerprints")
+                    logger.debug(f"Processed batch: {i+1}/{len(missing_hpcps)} files, stored {len(stored_in_batch)} HPCP fingerprints")
 
             except Exception as e:
-                error_msg = f"Error processing {file_path}: {e}"
+                error_msg = f"Error processing {database.get_track_metadata_by_id(track_id)["file_name"]}: {e}"
                 errors.append(error_msg)
                 logger.exception(error_msg)
                 continue
     
     # Store stragglers (final batch) to database
     if current_batch:
-        stored_in_batch = _process_and_store_batch(hpcp_batch=current_batch, 
-                                                   database=database, 
-                                                   track_mapping=track_mapping, 
-                                                   track_similarity=track_similarity)
-        total_stored += stored_in_batch
-        logger.debug(f"Processed batch: {i+1}/{len(track_list)} files, stored {stored_in_batch} HPCP fingerprints")
+        stored_in_batch = _store_batch(hpcp_batch=current_batch, 
+                                       database=database, 
+                                       track_similarity=track_similarity)
+        total_stored += len(stored_in_batch)
+        successful_files | stored_in_batch
+        logger.debug(f"Processed batch: {i+1}/{len(missing_hpcps)} files, stored {len(stored_in_batch)} HPCP fingerprints")
 
-    # Write the index to disk
-    track_similarity.save_index()
     logger.info(f"HPCP extraction complete. Processed: {total_processed}, Stored: {total_stored}, Errors: {len(errors)}")
 
     if errors:
         logger.warning(f"Encountered {len(errors)} errors during HPCP extraction")
 
     if progress_callback:
-        progress_callback(len(track_list), len(track_list), "HPCP extraction complete!")
+        progress_callback(len(missing_hpcps), len(missing_hpcps), "HPCP extraction complete!")
 
     return {
-        "total_files": len(track_list),
-        "processed": total_processed,
-        "stored": total_stored,
-        "errors": len(errors)
+        "successful_files": successful_files,
+        "errors": errors
     }
 
-def _process_and_store_batch(hpcp_batch: Dict[Path, np.ndarray], 
-                             database: Database, 
-                             track_similarity: TrackSimilarity,
-                             track_mapping: Dict[str, int]) -> int:
+def _store_batch(hpcp_batch: Dict[int, np.ndarray], 
+                 database: Database, 
+                 track_similarity: TrackSimilarity) -> Set[Path]:
     """
-    Process a batch of HPCP data and store in database.
+    Store HPCP data in database.
     
     Returns:
-        Number of successfully stored HPCP fingerprints
+        Files which successfully stored HPCP fingerprints
 
     """
-    # Get file paths that aren't in our pre-computed track_mapping
-    missing_paths = [str(path) for path in hpcp_batch.keys() if str(path) not in track_mapping]
-    
-    # Look up missing track_ids
-    if missing_paths:
-        new_mapping = database.get_track_ids_by_paths(missing_paths)
-        track_mapping.update(new_mapping)
-    
-    # Convert to track_id-based dictionary
-    track_hpcp_data = {}  # {track_id: hpcp_data}
-    missing_tracks = []
-    
-    for file_path, hpcp_data in hpcp_batch.items():
-        track_id = track_mapping.get(str(file_path))
-        if track_id:
-            track_hpcp_data[track_id] = hpcp_data
-        else:
-            missing_tracks.append(str(file_path))
-    
-    # Report missing tracks
-    if missing_tracks:
-        logger.warning(f"Batch: {len(missing_tracks)} tracks not found in database")
-        for path in missing_tracks[:3]:  # Log first 3 missing tracks
-            logger.debug(f"Missing track: {path}")
-    
     # Store the batch
-    if track_hpcp_data:
-        success_count = database.batch_insert_hpcp(track_hpcp_data)
-        track_similarity.index_HPCP(hpcp_dict=track_hpcp_data)
-        if success_count != len(track_hpcp_data):
-            logger.warning(f"Batch storage: expected {len(track_hpcp_data)}, got {success_count}")
-        return success_count
-    else:
-        logger.warning("Batch: No valid HPCP data to store")
-        return 0
+    logger.info(f"Storing {len(hpcp_batch)} HPCPs.")
+    if hpcp_batch:
+        successful_tracks = database.batch_insert_hpcp(hpcp_batch)
+        track_similarity.index_HPCP(hpcp_dict=hpcp_batch)
+        if successful_tracks is None:
+            logger.warning("Batch: No valid HPCP data to store")
+            return None
+        if len(successful_tracks) != len(hpcp_batch):
+            logger.warning(f"Batch storage: expected {len(hpcp_batch)}, got {len(successful_tracks)}")
+        return successful_tracks
 
 #TODO: Implement cross-correlation for HPCP
 def compare_hpcp(hpcp1, hpcp2):

@@ -2,7 +2,7 @@
 from pathlib import Path
 import sqlite3
 import logging
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Set, Tuple
 import numpy as np
 
 import utils.constants as const
@@ -53,7 +53,7 @@ class Database:
             ''')
 
     # Metadata Insertion Methods
-    def insert_track_metadata(self, metadata: Dict[str, Any]) -> bool:
+    def insert_track_metadata(self, metadata: Dict[str, Any]) -> int:
         """Insert a track's metadata into the database. (Worker thread)"""
         try:
             with sqlite3.connect(self.db_path) as conn:
@@ -65,14 +65,14 @@ class Database:
                     [metadata.get(field) for field in const.METADATA_FIELD_TYPES.keys()]
                 ))
         except Exception as e:
-            print(f"Error inserting track {metadata.get("file_name")}: {e}")
+            logger.error(f"Error inserting track {metadata.get("file_name")}: {e}")
 
     # HPCP Methods
     def insert_hpcp(self, track_id: int, hpcp_data: np.ndarray) -> bool:
         """Store HPCP fingerprint for a single track."""
         try:
             if hpcp_data is None:
-                print(f"No HPCP data provided for track {track_id}")
+                logger.warning(f"No HPCP data provided for track {track_id}")
                 return False
                 
             # Convert to binary
@@ -88,18 +88,20 @@ class Database:
             return True
             
         except Exception as e:
-            print(f"Error storing HPCP for track {track_id}: {e}")
+            logger.error(f"Error storing HPCP for track {track_id}: {e}")
             return False
 
-    def batch_insert_hpcp(self, hpcp_data_dict: Dict[int, np.ndarray]) -> int:
+    def batch_insert_hpcp(self, hpcp_data_dict: Dict[int, np.ndarray]) -> Set:
         """Store HPCP data for multiple tracks efficiently in a single transaction.
         
         Args:
             hpcp_data_dict: Dictionary with {track_id: hpcp_array} pairs
+        Returns:
+            Set of the successfully stored files
         """
         try:
             if not hpcp_data_dict:
-                print("No HPCP data provided to batch_insert_hpcp")
+                logger.warning("No HPCP data provided to batch_insert_hpcp")
                 return 0
                 
             # Convert all HPCP arrays to binary format
@@ -111,11 +113,11 @@ class Database:
                         hpcp_binary = sqlite3.Binary(hpcp_array.tobytes())
                         data_tuples.append((track_id, hpcp_binary))
                     except Exception as e:
-                        print(f"Error converting HPCP for track {track_id}: {e}")
+                        logger.error(f"Error converting HPCP for track {track_id}: {e}")
                         continue
             
             if not data_tuples:
-                print("No valid HPCP data to store")
+                logger.warning("No valid HPCP data to store")
                 return 0
                 
             # Single transaction for all inserts
@@ -125,15 +127,15 @@ class Database:
                     VALUES (?, ?)
                 ''', data_tuples)
                 
-            print(f"Successfully stored HPCP data for {len(data_tuples)} tracks")
-            return len(data_tuples)
+            logger.info(f"Successfully stored HPCP data for {len(data_tuples)} tracks")
+            return {data_tuple[0] for data_tuple in data_tuples}
                 
         except sqlite3.Error as e:
-            print(f"Database error in batch_insert_hpcp: {e}")
-            return 0
+            logger.error(f"Database error in batch_insert_hpcp: {e}")
+            return None
         except Exception as e:
-            print(f"Unexpected error in batch_insert_hpcp: {e}")
-            return 0
+            logger.error(f"Unexpected error in batch_insert_hpcp: {e}")
+            return None
     
     def get_hpcp(self, track_id: int) -> Optional[np.ndarray]:
         """Retrieve HPCP fingerprint for a track."""
@@ -148,7 +150,37 @@ class Database:
                     return np.frombuffer(result[0], dtype=np.float32)
                 return None
         except Exception as e:
-            print(f"Error retrieving HPCP for track {track_id}: {e}")
+            logger.error(f"Error retrieving HPCP for track {track_id}: {e}")
+            return None
+        
+    def get_missing_hpcps(self, track_ids: List[int]) -> Tuple[Set[int], Set[int]]:
+        if not track_ids:
+            return set()
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                placeholders = ','.join(['?'] * len(track_ids))
+
+                cursor = conn.execute(
+                    f'SELECT track_id FROM track_hpcp WHERE track_id IN ({placeholders})', 
+                    track_ids
+                )
+                found_ids = {row[0] for row in cursor.fetchall()}
+                return set(track_ids) - found_ids, set(found_ids)
+        except Exception as e:
+            logger.error(f"Error checking track existence {track_ids}: {e}")
+            return set(track_ids), set()  # Assume all are missing on error
+    
+    def get_all_hpcp(self) -> Dict[int, np.ndarray]:
+        """Retrieve all HPCP fingerprints."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute('''SELECT * FROM track_hpcp''')
+                results = cursor.fetchall()
+                if results:
+                    return {result[0]: np.frombuffer(result[1], dtype=np.float32) for result in results}
+                return None
+        except Exception as e:
+            logger.error(f"Error retrieving HPCPs: {e}")
             return None
     
     # Metadata Retrieval Methods
@@ -164,23 +196,24 @@ class Database:
                     tracks.append(track)
                 return tracks
         except Exception as e:
-            print(f"Error fetching tracks: {e}")
+            logger.error(f"Error fetching tracks: {e}")
             return []
         
     def get_range_of_track_metadata(self, offset: int, limit: int) -> List[Dict]:
         """Fetch a range of tracks."""
         try:
             with sqlite3.connect(self.db_path) as conn:
-                print(f"Fetching tracks with offset {offset} and limit {limit}")
+                logger.info(f"Fetching tracks with offset {offset} and limit {limit}")
                 cursor = conn.execute('SELECT * FROM track_metadata LIMIT ? OFFSET ?', (limit, offset))
                 tracks = []
                 for row in cursor.fetchall():
                     # row[i+1] to avoid first id column
-                    track = {list(const.METADATA_FIELD_TYPES.keys())[i]: row[i+1] for i in range(len(const.METADATA_FIELD_TYPES.keys()))}
+                    field_names = list(const.METADATA_FIELD_TYPES.keys())
+                    track = {field_names[i]: row[i+1] for i in range(len(field_names))}
                     tracks.append(track)
                 return tracks
         except Exception as e:
-            print(f"Error fetching range of tracks: {e}")
+            logger.error(f"Error fetching range of tracks: {e}")
             return []
     
     def get_track_metadata_by_id(self, track_id: int) -> Optional[Dict]:
@@ -191,54 +224,61 @@ class Database:
                 row = cursor.fetchone()
                 if row:
                     # row[i+1] to avoid first id column
-                    track = {const.METADATA_FIELD_TYPES.keys()[i]: row[i+1] for i in range(len(const.METADATA_FIELD_TYPES.keys()))}
+                    field_names = list(const.METADATA_FIELD_TYPES.keys())
+                    track = {field_names[i]: row[i+1] for i in range(len(field_names))}
                     return track
                 return None
         except Exception as e:
-            print(f"Error fetching track by ID {track_id}: {e}")
+            logger.error(f"Error fetching track by ID {track_id}: {e}")
             return None
         
-    def get_track_ids_by_paths(self, file_paths: List[str]) -> Dict[str, int]:
+    def get_track_ids_by_paths(self, file_paths: List[Path]) -> Dict[str, int]:
         """Get multiple track_ids at once."""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 # Use IN clause for multiple paths
+                path_strings = [str(path) for path in file_paths]
                 placeholders = ','.join(['?'] * len(file_paths))
                 cursor = conn.execute(
                     f'SELECT id, file_path FROM track_metadata WHERE file_path IN ({placeholders})',
-                    file_paths
+                    path_strings
                 )
                 return {row[1]: row[0] for row in cursor.fetchall()}  # {file_path: track_id}
         except Exception as e:
-            print(f"Error finding track_ids: {e}")
+            logger.error(f"Error finding track_ids: {e}")
             return {}
         
-    def get_track_id_by_path(self, file_path: str) -> Optional[int]:
+    def get_track_id_by_path(self, file_path: Path) -> Optional[int]:
         """Get track_id using the file path (most reliable identifier)."""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.execute(
                     'SELECT id FROM track_metadata WHERE file_path = ?', 
-                    (file_path,)
+                    (str(file_path),)
                 )
                 result = cursor.fetchone()
                 return result[0] if result else None
         except Exception as e:
-            print(f"Error finding track_id for {file_path}: {e}")
+            logger.error(f"Error finding track_id for {file_path}: {e}")
             return None
         
-    def track_metadata_exists(self, track_id: int) -> bool:
-        """Check if a track_id exists in the tracks table."""
+    def get_missing_tracks(self, track_paths: List[Path]) -> Tuple[Set[Path], Set[Path]]:
+        if not track_paths:
+            return set()
         try:
             with sqlite3.connect(self.db_path) as conn:
+                path_strings = [str(path) for path in track_paths]
+                placeholders = ','.join(['?'] * len(track_paths))
+
                 cursor = conn.execute(
-                    'SELECT 1 FROM track_metadata WHERE id = ?', 
-                    (track_id,)
+                    f'SELECT file_path FROM track_metadata WHERE file_path IN ({placeholders})', 
+                    path_strings
                 )
-                return cursor.fetchone() is not None
+                found_paths = {Path(row[0]) for row in cursor.fetchall()}
+                return set(track_paths) - found_paths, set(found_paths)
         except Exception as e:
-            print(f"Error checking track existence {track_id}: {e}")
-            return False
+            logger.error(f"Error checking track existence {track_paths}: {e}")
+            return set(track_paths), {}  # Assume all are missing on error
         
     # Scan History Methods
     def start_scan(self, directory: Path) -> Optional[int]:
@@ -251,7 +291,7 @@ class Database:
                 ''', (str(directory),))
                 return cursor.lastrowid
         except Exception as e:
-            print(f"Error starting scan log: {e}")
+            logger.error(f"Error starting scan log: {e}")
             return None
     
     def end_scan(self, scan_id: int, total_files: int, successful_files: int, errors: int):
@@ -264,7 +304,7 @@ class Database:
                     WHERE id = ?
                 ''', (total_files, successful_files, errors, scan_id))
         except Exception as e:
-            print(f"Error ending scan log: {e}")
+            logger.error(f"Error ending scan log: {e}")
     
     def count_number_of_tracks(self) -> int:
         """Return the total number of tracks in the database."""
@@ -274,5 +314,5 @@ class Database:
                 count = cursor.fetchone()[0]
                 return count
         except Exception as e:
-            print(f"Error counting tracks: {e}")
+            logger.error(f"Error counting tracks: {e}")
             return 0

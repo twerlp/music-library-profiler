@@ -15,6 +15,8 @@ from workers.scan_worker import ScanWorker
 import logging
 from pathlib import Path
 
+logger = logging.getLogger(__name__)
+
 #TODO: Implement feature for choosing a song to compare similarity to
 
 class MainWindow(QMainWindow):
@@ -32,17 +34,16 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Ready")
 
         #TODO: Replace this with the track similarity button, this is purely for debug purposes
-        self.track_similairty.find_similar_tracks_to("/home/twerp/Music/Michael Bolton - Soul Provider/03 - Michael Bolton - It's Only My Heart.mp3", 100)
+        self.track_similairty.find_similar_tracks_to("/home/twerp/Music/👁‍🗨📲 - 👁点击と👁/👁‍🗨📲 - 👁点击と👁 - 03 Satya तुम्हारे लिए Incense एक.mp3", 10)
         # Create menu
         # file_menu = self.menuBar().addMenu("File")
         
         # Set window icon
         try:
             icon_path = rm.project_path("assets/icon.png")
-            print(icon_path)
             self.setWindowIcon(QIcon(str(icon_path)))
         except Exception as e:
-            logging.exception(f"Could not load icon: {e}")
+            logger.exception(f"Could not load icon: {e}")
             # Continue without icon
         
         # Create central widget and layout
@@ -103,14 +104,6 @@ class MainWindow(QMainWindow):
         ])
         event.accept()
     
-    # def _on_scroll_value_changed(self, value):
-    #     scroll_bar = self.sender()
-    #     print(f"Scroll bar value changed: {value}")
-    #     if scroll_bar and scroll_bar.maximum() > 0:
-    #         position_percent = (value / scroll_bar.maximum()) * 100
-    #         print(f"Scrolling to {position_percent}%")
-    #         self.scroll_widget.scroll_to(position_percent)
-    
     def _load_config(self):
         """Load configuration settings."""
         # Load last directory
@@ -138,7 +131,7 @@ class MainWindow(QMainWindow):
         self.config.set("last_directory", directory)
         
         self.statusBar().showMessage(f"Scanning directory: {directory}")
-        logging.info(f"Starting scan of: {directory}")  # Replace with actual scanning logic
+        logger.info(f"Starting scan of: {directory}")  # Replace with actual scanning logic
         self.status_label.setText("Scanning in progress...")
         
         # Initialize scanner and worker thread
@@ -172,13 +165,16 @@ class MainWindow(QMainWindow):
         
         # Show results
         self.statusBar().showMessage(
-            f"Scan complete! Processed {results['successful_files']}/{results['total_files']} files"
+            f"Scan complete! Processed {len(results['successful_files'])}/{results['total_files']} files"
         )
         
         # Export results
         # output_path = Path.home() / "music_library_export.json"
         # if self.scanner.export_results(output_path):
-        #     print(f"Results exported to {output_path}")
+        #     logger.info(f"Results exported to {output_path}")
+
+        for error in results["errors"]:
+            logger.warning(error)
 
     def _on_scan_error(self, error_message: str):
         """Handle scan errors"""

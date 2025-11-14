@@ -17,22 +17,41 @@ HPCP_DIMENSION=12 # HPCP is 1x12
 class TrackSimilarity:
     def __init__(self, database: Database):
         self.database = database
-        self.hpcp_index_path = rm.project_path("indexes/hpcp.index")
-        self.hpcp_index = self._initialize_faiss_HPCP()
+        self._initialize_faiss_HPCP()
 
-    def _initialize_faiss_HPCP(self) -> faiss.IndexIDMap:
-        if Path.exists(self.hpcp_index_path):
-            return self.load_index()
-        return faiss.IndexIDMap(faiss.IndexFlatIP(HPCP_DIMENSION))
+    def _initialize_faiss_HPCP(self):
+        hpcp_dict = self.database.get_all_hpcp()
+        self.hpcp_index = faiss.IndexIDMap(faiss.IndexFlatIP(HPCP_DIMENSION))
+        self.index_HPCP(hpcp_dict=hpcp_dict)
     
     def find_similar_tracks_to(self, track_path: Path, num_tracks: int) -> tuple[np.ndarray[np.float32], np.ndarray[np.int64]]:
         try:
             track_id = self.database.get_track_id_by_path(file_path=track_path)
+            
+            # Gather tracks with HPCP similarity
             hpcp = self.database.get_hpcp(track_id=track_id)
-            distances, track_ids = self.hpcp_index.search(np.float32(hpcp).reshape(1, -1), num_tracks)
-            print(distances)
-            print(track_ids)
-            return (distances, track_ids)
+
+            logger.info(f"HPCP shape: {hpcp.shape}")
+            logger.info(f"HPCP values: {hpcp}")
+            logger.info(f"HPCP length: {len(hpcp)}")
+            
+            # Check FAISS index state
+            logger.info(f"FAISS index dimension: {self.hpcp_index.d}")
+            logger.info(f"FAISS index total vectors: {self.hpcp_index.ntotal}")
+
+            hpcp_distances, hpcp_track_ids = self.hpcp_index.search(np.float32(hpcp).reshape(1, -1), num_tracks)
+
+            # TODO: Gather tracks with close BPM / nice BPM ratios
+
+            # TODO: Gather tracks with similar sound profiles
+
+            # TODO: Gather tracks with similar genres
+
+            # TODO: 
+
+            print(hpcp_distances)
+            print(hpcp_track_ids)
+            return (hpcp_distances, hpcp_track_ids)
         except Exception as e:
             logger.exception(f"Error finding similar tracks to {track_path}: {e}")
             return None
@@ -57,11 +76,4 @@ class TrackSimilarity:
 
         self.hpcp_index.add_with_ids(np_embeddings, ids_array)
         logger.info(f"Indexed {len(np_embeddings)} HPCP vectors")
-
-    def save_index(self):
-        self.hpcp_index_path.parent.mkdir(parents=True, exist_ok=True)
-        faiss.write_index(self.hpcp_index, str(self.hpcp_index_path))
-    
-    def load_index(self) -> faiss.Index:
-        return faiss.read_index(str(self.hpcp_index_path))
         
