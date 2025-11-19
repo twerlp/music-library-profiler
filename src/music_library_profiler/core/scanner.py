@@ -106,7 +106,7 @@ class Scanner:
         metadata_results = self._scan_metadata(music_files=music_files)
         
         afe = AudioFeatureExtractor(track_list=music_files, database=self.database, progress_callback=self.progress_callback, track_similarity=self.track_similarity)
-        hpcp_results = afe.find_features_of_list(batch_size=128, max_workers=8)
+        hpcp_results = afe.find_features_of_list(batch_size=128, max_workers=None)
 
         if len(metadata_results["successful_files"]) and len(hpcp_results["successful_files"]):
             overall_results["successful_files"] = metadata_results["successful_files"] & hpcp_results["successful_files"]

@@ -49,7 +49,7 @@ class Database:
                     track_id INTEGER PRIMARY KEY,
                     hpcp_data BLOB NOT NULL,
                     bpm_data DOUBLE,
-                    genre_data TEXT,
+                    genre_data BLOB,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (track_id) REFERENCES track_metadata(id) ON DELETE CASCADE
                 )
@@ -114,7 +114,9 @@ class Database:
                     try:
                         hpcp_array = np.array(features.hpcp, dtype=np.float32)
                         hpcp_binary = sqlite3.Binary(hpcp_array.tobytes())
-                        data_tuples.append((track_id, hpcp_binary, features.bpm))
+                        genre_array = np.array(features.genre, dtype=np.float32)
+                        genre_binary = sqlite3.Binary(genre_array.tobytes())
+                        data_tuples.append((track_id, hpcp_binary, features.bpm, genre_binary))
                     except Exception as e:
                         logger.error(f"Error converting HPCP for track {track_id}: {e}")
                         continue
@@ -126,8 +128,8 @@ class Database:
             # Single transaction for all inserts
             with sqlite3.connect(self.db_path) as conn:
                 conn.executemany('''
-                    INSERT OR REPLACE INTO track_features (track_id, hpcp_data, bpm_data)
-                    VALUES (?, ?, ?)
+                    INSERT OR REPLACE INTO track_features (track_id, hpcp_data, bpm_data, genre_data)
+                    VALUES (?, ?, ?, ?)
                 ''', data_tuples)
                 
             logger.info(f"Successfully stored HPCP data for {len(data_tuples)} tracks")
@@ -150,7 +152,8 @@ class Database:
                 cursor = conn.execute(
                     f'''SELECT track_id FROM track_features WHERE track_id IN ({placeholders}) AND 
                         hpcp_data IS NOT NULL AND 
-                        bpm_data IS NOT NULL
+                        bpm_data IS NOT NULL AND
+                        genre_data IS NOT NULL
                         ''', 
                     track_ids
                 )
@@ -170,7 +173,7 @@ class Database:
                 if result:
                     hpcp = np.frombuffer(result[1], dtype=np.float32)
                     bpm = result[2]
-                    genre = None
+                    genre = np.frombuffer(result[3], dtype=np.float32)
                     features = Features(hpcp=hpcp, bpm=bpm, genre=genre)
                     return features
                 return None
@@ -180,7 +183,6 @@ class Database:
         
     def get_features_by_ids(self, track_ids: List[int]) -> Dict[int, Features]:
         """Retrieve features for a certain track."""
-        print(track_ids)
         try:
             with sqlite3.connect(self.db_path) as conn:
                 placeholders = ','.join(['?'] * len(track_ids))
@@ -198,7 +200,6 @@ class Database:
                         features = Features(hpcp=hpcp, bpm=bpm, genre=genre)
                         feature_list[result[0]] = features
                     return feature_list
-                print('shit')
                 return None
         except Exception as e:
             logger.error(f"Error retrieving features: {e}")
@@ -215,7 +216,7 @@ class Database:
                     for result in results:
                         hpcp = np.frombuffer(result[1], dtype=np.float32)
                         bpm = result[2]
-                        genre = None
+                        genre = np.frombuffer(result[3], dtype=np.float32)
                         features = Features(hpcp=hpcp, bpm=bpm, genre=genre)
                         feature_dict[result[0]] = features
                     return feature_dict

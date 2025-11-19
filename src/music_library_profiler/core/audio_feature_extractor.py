@@ -5,10 +5,14 @@
 # Datasets https://github.com/ismir/mir-datasets/blob/master/mir-datasets.yaml
 # Detecting both key and mode https://github.com/mrueda/music-key-detector/blob/main/music_key_detector.py
 # Using Essentia to detect key and scale using HPCP: https://essentia.upf.edu/tutorial_tonal_hpcpkeyscale.html (no great general key profile)
+# Someone building a similar project to mine: https://github.com/RDSoria/music-recommender/tree/main
 
 from typing import Optional, Callable, List, Any, Dict, Set, Tuple
 from dataclasses import dataclass
 import librosa
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL']='3'
+from essentia.standard import MonoLoader, TensorflowPredictEffnetDiscogs # essentia-tensorflow
 import numpy as np
 from pathlib import Path
 import matplotlib.pyplot as plt
@@ -18,12 +22,14 @@ import concurrent.futures
 from core.database import Database
 from core.features import Features
 from core.track_similarity import TrackSimilarity
+import utils.resource_manager as rm
 
 logger = logging.getLogger(__name__)
 
 CHROMATIC_SCALE = ['C', 'C#', 'D', 'D#', 'E', 'F',
                   'F#', 'G', 'G#', 'A', 'A#', 'B']
 SAMPLING_RATE = 22050
+EMBEDDING_MODEL = rm.project_path("models/discogs-effnet-bs64-1.pb")
 
 class AudioFeatureExtractor:
     def __init__(self, 
@@ -77,10 +83,13 @@ class AudioFeatureExtractor:
 
         logger.info(f"Starting CPU-parallel feature extraction for {len(missing_features)} tracks with {max_workers} workers")
 
-        with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+        model = TensorflowPredictEffnetDiscogs(graphFilename=str(EMBEDDING_MODEL), output="PartitionedCall:1")
+        loader = MonoLoader()
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             # Submit HPCP work to the cores
             future_to_id = {
-                executor.submit(find_features_of_file, inverse_mapping[track_id]): track_id 
+                executor.submit(find_features_of_file, inverse_mapping[track_id], model, loader): track_id 
                 for track_id in missing_features
             }
 
@@ -160,14 +169,14 @@ class AudioFeatureExtractor:
             return successful_tracks
 
 
-def find_features_of_file(audio_file_path: Path) -> Features:
+def find_features_of_file(audio_file_path: Path, model, loader) -> Features:
     # Load audio file
     audio_time_series, sampling_rate = load_audio_file(audio_file_path)
     audio_time_series_clean, _ = librosa.effects.trim(audio_time_series, top_db=20) # Removes silence
 
     hpcp = find_hpcp(audio_time_series=audio_time_series_clean, sampling_rate=sampling_rate)
     bpm, beat_markers = find_bpm(audio_time_series=audio_time_series_clean, sampling_rate=sampling_rate)
-    genre = find_genre(audio_file_path=audio_file_path)
+    genre = find_genre(audio_file_path=audio_file_path, model=model, loader=loader)
 
     features = Features(hpcp=hpcp, bpm=float(bpm), genre=genre)
     return features
@@ -219,8 +228,13 @@ def find_bpm(audio_time_series: np.ndarray, sampling_rate: int) -> Tuple[np.floa
     bpm, beat_markers = librosa.beat.beat_track(y=audio_time_series, sr=sampling_rate)
     return bpm, beat_markers
 
-def find_genre(audio_file_path: Path):
-    pass
+# https://essentia.upf.edu/models.html
+def find_genre(audio_file_path: Path, model, loader) -> np.ndarray:
+    loader.configure(filename=str(audio_file_path), sampleRate=16000, resampleQuality=4)
+    audio = loader()
+    embeddings = model(audio) #ndarray of shape (x, 1280)
+    flattened_embeddings = np.mean(embeddings, axis=0) # Average pooling to get a single embedding
+    return flattened_embeddings
 
 def load_audio_file(audio_file_path: Path):
     """
