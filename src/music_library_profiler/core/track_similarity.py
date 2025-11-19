@@ -25,7 +25,7 @@ class TrackSimilarity:
     def _initialize_faiss(self):
         feature_dict = self.database.get_all_features()
         self.hpcp_index = faiss.IndexIDMap(faiss.IndexFlatL2(HPCP_DIMENSION))
-        self.genre_index = faiss.IndexIDMap(faiss.IndexFlatIP(GENRE_DIMENSION))
+        self.genre_index = faiss.IndexIDMap(faiss.IndexFlatL2(GENRE_DIMENSION))
         self.index_features(feature_dict=feature_dict)
     
     def find_similar_tracks_to(self, track_path: Path, num_tracks: int) -> tuple[np.ndarray[np.float32], np.ndarray[np.int64]]:
@@ -56,16 +56,13 @@ class TrackSimilarity:
             hpcp_rankings = {}
             genre_rankings = {}
 
-            hpcp_mean = np.mean(hpcp_distances)
-            genre_mean = np.mean(genre_distances)
-
             # Populate HPCP rankings (lower distance = better)
             for rank, (distance, track_id_val) in enumerate(zip(hpcp_distances[0], hpcp_track_ids[0])):
-                hpcp_rankings[track_id_val] = 1.0 / (1.0 + distance/hpcp_mean)  # Convert distance to similarity score
+                hpcp_rankings[track_id_val] = 1.0 / (1.0 + distance)  # Convert distance to similarity score
                 
             # Populate genre rankings (higher cosine similarity = better)
             for rank, (distance, track_id_val) in enumerate(zip(genre_distances[0], genre_track_ids[0])):
-                genre_rankings[track_id_val] = distance/genre_mean
+                genre_rankings[track_id_val] = 1.0 / (1.0 + distance)
 
             # Get all unique track IDs from both searches
             all_track_ids = set(hpcp_track_ids[0]) | set(genre_track_ids[0])
