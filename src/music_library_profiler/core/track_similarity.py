@@ -18,6 +18,9 @@ HPCP_DIMENSION=12 # HPCP is 1x12
 GENRE_DIMENSION=1280 # Genre embeddings dimension from EFFNET reduced to 1x1280
 
 class TrackSimilarity:
+    INTERPOLATE_MODE_LINEAR = 0
+    INTERPOLATE_MODE_GRADIENT = 1
+
     def __init__(self, database: Database):
         self.database = database
         self._initialize_faiss()
@@ -28,30 +31,203 @@ class TrackSimilarity:
         self.genre_index = faiss.IndexIDMap(faiss.IndexFlatL2(GENRE_DIMENSION))
         self.index_features(feature_dict=feature_dict)
     
-    def find_similar_tracks_to(self, track_path: Path, num_tracks: int) -> tuple[np.ndarray[np.float32], np.ndarray[np.int64]]:
+    def create_playlist_gradient(self, source_track_path: Path, destination_track_path: Path, num_tracks: int, mode: int) -> Optional[List[int]]:
+        """
+        Create a playlist of songs that form a gradient between two tracks.
+        """
+        source_track_id = self.database.get_track_id_by_path(file_path=source_track_path)
+        destination_track_id = self.database.get_track_id_by_path(file_path=destination_track_path)
+        
+        if source_track_id is None or destination_track_id is None:
+            logger.error("Source or destination track not found in database")
+            return None
+        
+        # Get features
+        source_features = self.database.get_feature_by_id(track_id=source_track_id)
+        target_features = self.database.get_feature_by_id(track_id=destination_track_id)
+        
+        if source_features is None or target_features is None:
+            logger.error("Source or destination track features not found in database")
+            return None
+        
+        # Calculate interpolation steps
+        playlist = [source_track_id]
+        current_track_id = source_track_id
+
+        for step in range(1, num_tracks + 1):
+            alpha = step / (num_tracks + 1)
+            current_features = self.database.get_feature_by_id(track_id=current_track_id)
+
+            # Interpolate HPCP and genre features
+            if mode == self.INTERPOLATE_MODE_LINEAR:
+                interpolated_hpcp = (1 - alpha) * source_features.hpcp + alpha * target_features.hpcp
+                interpolated_genre = (1 - alpha) * source_features.genre + alpha * target_features.genre
+            if mode == self.INTERPOLATE_MODE_GRADIENT:
+                interpolated_hpcp = current_features.hpcp + alpha * (target_features.hpcp - current_features.hpcp)
+                interpolated_genre = current_features.genre + alpha * (target_features.genre - current_features.genre)
+
+            target_point = Features(
+                hpcp=interpolated_hpcp,
+                genre=interpolated_genre,
+                bpm=current_features.bpm
+            )
+
+            # Find the closest track to the interpolated features
+            similar_tracks = self.find_similar_tracks_to(
+                track_path=None,
+                track_id=current_track_id,
+                features=target_point,
+                num_tracks=50
+            )
+
+            if not similar_tracks:
+                logger.warning(f"No similar tracks found for interpolation step {step}")
+                continue
+
+            # Select the best candidate that is not already in the playlist
+            best_candidate = None
+            for track_id, score in similar_tracks:
+                if track_id not in playlist:
+                    best_candidate = track_id
+                    current_track_id = track_id
+                    print(f"Selected track ID {track_id} with score {score} for step {step}")
+                    break
+            
+            if best_candidate is not None:
+                playlist.append(best_candidate)
+            else:
+                logger.warning(f"No unique track found for interpolation step {step}")
+
+
+        return playlist
+    
+    def create_playlist_include_track_direction(self, source_track_path: Path, destination_track_path: Path, 
+                                        num_tracks: int) -> Optional[List[int]]:
+        """
+        
+        """
+        source_track_id = self.database.get_track_id_by_path(file_path=source_track_path)
+        destination_track_id = self.database.get_track_id_by_path(file_path=destination_track_path)
+        
+        if source_track_id is None or destination_track_id is None:
+            logger.error("Source or destination track not found")
+            return None
+        
+        source_features = self.database.get_feature_by_id(track_id=source_track_id)
+        dest_features = self.database.get_feature_by_id(track_id=destination_track_id)
+        
+        if source_features is None or dest_features is None:
+            logger.error("Features not found")
+            return None
+        
+        # Calculate total vector difference
+        total_hpcp_diff = np.linalg.norm(dest_features.hpcp - source_features.hpcp)
+        total_genre_diff = np.linalg.norm(dest_features.genre - source_features.genre)
+        
+        # Step sizes (equal magnitude reduction)
+        hpcp_step = total_hpcp_diff / (num_tracks)
+        genre_step = total_genre_diff / (num_tracks)
+        
+        playlist = [source_track_id]
+        current_id = source_track_id
+        
+        for step in range(1, num_tracks + 1):
+            # Progress from 0 (start) to 1 (end)
+            progress = step / (num_tracks + 1)
+
+            current_features = self.database.get_feature_by_id(track_id=current_id)
+            current_hpcp = current_features.hpcp
+            current_genre = current_features.genre
+            current_bpm = current_features.bpm
+
+            current_hpcp_dist = np.linalg.norm(current_hpcp - dest_features.hpcp)
+            current_genre_dist = np.linalg.norm(current_genre - dest_features.genre)
+
+            hpcp_direction = (dest_features.hpcp - current_hpcp) / current_hpcp_dist if current_hpcp_dist != 0 else np.zeros_like(current_hpcp)
+            genre_direction = (dest_features.genre - current_genre) / current_genre_dist if current_genre_dist != 0 else np.zeros_like(current_genre)
+
+            target_hpcp = current_hpcp + hpcp_step * hpcp_direction
+            target_genre = current_genre + genre_step * genre_direction
+            target_bpm = current_bpm
+            
+            target_features = Features(
+                hpcp=target_hpcp,
+                genre=target_genre,
+                bpm=target_bpm
+            )
+            
+            # Number of neighbors to search also decreases with randomness
+            search_size = int(50 + 50 * (1 - progress))  # 100 early, 50 late
+            
+            similar_tracks = self.find_similar_tracks_to(
+                track_id=current_id,
+                features=target_features,
+                num_tracks=search_size
+            )
+            
+            if not similar_tracks:
+                # Try broader search if needed
+                similar_tracks = self.find_similar_tracks_to(
+                    track_id=current_id,
+                    features=target_features,
+                    num_tracks=search_size * 2
+                )
+            
+            if not similar_tracks:
+                logger.warning(f"No tracks found at step {step}")
+                break
+                        
+            for candidate_id, _ in similar_tracks:
+                if candidate_id not in playlist and candidate_id != destination_track_id:
+                    best_track_id = candidate_id
+                    break
+            
+            if best_track_id is None:
+                logger.warning(f"No suitable track at step {step}")
+                break
+            
+            # Add track and update
+            playlist.append(best_track_id)
+            current_id = best_track_id
+        
+        # Add destination
+        if destination_track_id not in playlist:
+            playlist.append(destination_track_id)
+        
+        return playlist    
+
+
+    def get_weighted_score(self, hpcp_score: Optional[float], genre_score: Optional[float]) -> float:
+        if genre_score and hpcp_score is None:
+            hpcp_score = 0.0
+        elif hpcp_score and genre_score is None:
+            genre_score = 0.0
+        elif hpcp_score is None and genre_score is None:
+            return 0.0  # No scores available
+
+        # Combine scores (weights can be adjusted)
+        combined_score = (0.6 * hpcp_score) + (0.4 * genre_score)
+        return combined_score
+
+    def find_similar_tracks_to(self, track_path: Optional[Path]=None, track_id: Optional[int]=None, features: Optional[Features]=None, num_tracks: int=10) -> List[tuple[int, np.float32]]:
         try:
-            track_id = self.database.get_track_id_by_path(file_path=track_path)
+            if track_id is None and track_path is None:
+                logger.error("Either track_path or track_id must be provided")
+                return None
+            if track_id is None:
+                track_id = self.database.get_track_id_by_path(file_path=track_path)
+            if track_path is None:
+                track_path = self.database.get_track_metadata_by_id(track_id=track_id)["file_path"]
             
             # Gather tracks with HPCP similarity
-            features = self.database.get_feature_by_id(track_id=track_id)
+            if features is None:
+                features = self.database.get_feature_by_id(track_id=track_id)
             if not features:
+                logger.error(f"No features found for track ID {track_id}")
                 return None
-
-            # logger.info(f"HPCP shape: {features.hpcp.shape}")
-            # logger.info(f"HPCP values: {features.hpcp}")
-            # logger.info(f"HPCP length: {len(features.hpcp)}")
-
-            # logger.info(f"Genre shape: {features.genre.shape}")
-            # logger.info(f"Genre values: {features.genre}")
-            # logger.info(f"Genre length: {len(features.genre)}")
-            
-            # # Check FAISS index state
-            # logger.info(f"FAISS index dimension: {self.hpcp_index.d}")
-            # logger.info(f"FAISS index total vectors: {self.hpcp_index.ntotal}")
 
             hpcp_distances, hpcp_track_ids = self.hpcp_index.search(np.float32(features.hpcp).reshape(1, -1), num_tracks)
             genre_distances, genre_track_ids = self.genre_index.search(np.float32(features.genre).reshape(1, -1), num_tracks)
-            # TODO: Gather tracks with similar sound profiles
 
             hpcp_rankings = {}
             genre_rankings = {}
@@ -80,15 +256,7 @@ class TrackSimilarity:
                 hpcp_score = hpcp_rankings.get(track_id_val)
                 genre_score = genre_rankings.get(track_id_val)
 
-                if genre_score and hpcp_score is None:
-                    hpcp_score = 0.0
-                elif hpcp_score and genre_score is None:
-                    genre_score = 0.0
-                elif hpcp_score is None and genre_score is None:
-                    continue  # Skip tracks with no scores, should not happen
-
-                # Combine scores (weights can be adjusted)
-                combined_score = (0.6 * hpcp_score) + (0.4 * genre_score)
+                combined_score = self.get_weighted_score(hpcp_score, genre_score)
 
                 if track_id_val in bpm_compatible_tracks:
                     combined_score *= 1.1  # Boost score for BPM compatible tracks
@@ -98,7 +266,7 @@ class TrackSimilarity:
             # Sort tracks by combined score in descending order
             track_scores.sort(key=lambda x: x[1], reverse=True)
             
-            print("track scores:", track_scores)
+            # print("track scores:", track_scores)
             return (track_scores)
         except Exception as e:
             logger.exception(f"Error finding similar tracks to {track_path}: {e}")
