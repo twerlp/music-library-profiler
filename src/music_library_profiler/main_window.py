@@ -12,6 +12,9 @@ import utils.resource_manager as rm
 
 from widgets.scrollable_tracklist import DynamicScrollWidget
 from widgets.scan_window import ScanWindow
+from widgets.file_tree import FileTreeWidget
+from widgets.playlist import PlaylistListWidget
+from widgets.horizontal_song_list import HorizontalSongListWidget
 from workers.scan_worker import ScanWorker
 
 import logging
@@ -72,20 +75,23 @@ class MainWindow(QMainWindow):
         
 
         # Add scrollable track list
-        self.scroll_widget = DynamicScrollWidget(self.database)
+        # self.scroll_widget = DynamicScrollWidget(self.database)
 
-        total_height = self.database.count_number_of_tracks() * 40  # item height
-        self.scroll_widget.setFixedHeight(total_height)
+        # total_height = self.database.count_number_of_tracks() * 40  # item height
+        # self.scroll_widget.setFixedHeight(total_height)
         
-        scroll_area = QScrollArea()
-        scroll_area.setWidget(self.scroll_widget)
-        scroll_area.setWidgetResizable(True)
+        # scroll_area = QScrollArea()
+        # scroll_area.setWidget(self.scroll_widget)
+        # scroll_area.setWidgetResizable(True)
         
         # scroll_bar = scroll_area.verticalScrollBar()
         # scroll_bar.setRange(0, self.database.count_number_of_tracks() * 7)
         # scroll_bar.valueChanged.connect(self._on_scroll_value_changed)
         
-        layout.addWidget(scroll_area)
+        # layout.addWidget(scroll_area)
+
+        self.file_tree = FileTreeWidget(self.database)
+        layout.addWidget(self.file_tree)
         
         # Add stretch to push content to top
         layout.addStretch()
