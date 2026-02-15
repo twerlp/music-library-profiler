@@ -1,7 +1,8 @@
 # main_window.py - The main application window for Music Library Profiler.
 from PyQt6.QtWidgets import (QMainWindow, QLabel, QPushButton, QVBoxLayout, 
-                             QWidget, QProgressBar, QScrollArea, QMenuBar,
-                             QMenu)
+                             QHBoxLayout, QWidget, QProgressBar, QScrollArea, 
+                             QMenuBar, QMenu, QSplitter
+                             )
 from PyQt6.QtGui import QIcon, QFont
 from PyQt6.QtCore import Qt, QThread
 
@@ -10,11 +11,11 @@ from core.database import Database
 from core.track_similarity import TrackSimilarity
 import utils.resource_manager as rm
 
-from widgets.scrollable_tracklist import DynamicScrollWidget
 from widgets.scan_window import ScanWindow
 from widgets.file_tree import FileTreeWidget
 from widgets.playlist import PlaylistListWidget
-from widgets.horizontal_song_list import HorizontalSongListWidget
+from widgets.generated_song_list import GeneratedSongListWidget
+from widgets.requested_song_list import RequestedSongListWidget
 from workers.scan_worker import ScanWorker
 
 import logging
@@ -68,33 +69,28 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(central_widget)
         
         # Welcome label
-        label = QLabel("Welcome to Music Library Profiler!")
-        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        label.setFont(QFont("DejaVu Sans", 16, QFont.Weight.Bold))
-        layout.addWidget(label)
-        
+        # label = QLabel("Welcome to Music Library Profiler!")
+        # label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # label.setFont(QFont("DejaVu Sans", 16, QFont.Weight.Bold))
+        # layout.addWidget(label)
 
-        # Add scrollable track list
-        # self.scroll_widget = DynamicScrollWidget(self.database)
-
-        # total_height = self.database.count_number_of_tracks() * 40  # item height
-        # self.scroll_widget.setFixedHeight(total_height)
-        
-        # scroll_area = QScrollArea()
-        # scroll_area.setWidget(self.scroll_widget)
-        # scroll_area.setWidgetResizable(True)
-        
-        # scroll_bar = scroll_area.verticalScrollBar()
-        # scroll_bar.setRange(0, self.database.count_number_of_tracks() * 7)
-        # scroll_bar.valueChanged.connect(self._on_scroll_value_changed)
-        
-        # layout.addWidget(scroll_area)
+        main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        layout.addWidget(main_splitter)
 
         self.file_tree = FileTreeWidget(self.database)
-        layout.addWidget(self.file_tree)
-        
-        # Add stretch to push content to top
-        layout.addStretch()
+        main_splitter.addWidget(self.file_tree)
+
+        similar_track_splitter = QSplitter(Qt.Orientation.Vertical)
+        main_splitter.addWidget(similar_track_splitter)
+
+        self.similar_track_request_list = RequestedSongListWidget()
+        similar_track_splitter.addWidget(self.similar_track_request_list)
+
+        self.similar_track_request_list.add_track(self.database.get_track_metadata_by_id(1))
+        self.similar_track_request_list.add_track(self.database.get_track_metadata_by_id(300))
+
+        self.similar_tracks_generate_list = GeneratedSongListWidget()
+        similar_track_splitter.addWidget(self.similar_tracks_generate_list)
     
     def closeEvent(self, event):
         """Handle window close event to save window geometry."""

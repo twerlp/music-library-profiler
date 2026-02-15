@@ -6,6 +6,7 @@ from typing import List, Optional, Type
 import mutagen
 from mutagen import FileType
 from utils.constants import SUPPORTED_AUDIO_EXTENSIONS
+from PyQt6.QtGui import QPixmap
 
 class MetadataReader:
     def read_metadata(self, file_path: Path) -> Optional[dict]:
@@ -61,3 +62,43 @@ class MetadataReader:
                 # Vorbis gets cranky if you ask for a tag that isn't there
                 continue
         return None
+    
+    def read_album_art(self, file_path: Path) -> Optional[bytes]:
+        """Extract album art from the audio file if available."""
+        try:
+            print(f"Attempting to read album art from file: {file_path}")
+            audiofile: FileType = mutagen.File(file_path)
+            if audiofile is None or not audiofile.tags:
+                return None
+            
+            # Check for common album art tags
+            for tag in ["APIC:", "covr", "cover", "METADATA_BLOCK_PICTURE"]:
+                if tag in audiofile.tags:
+                    if isinstance(audiofile.tags[tag], list):
+                        return self._convert_cover_to_pixmap(audiofile.tags[tag][0])
+                    return self._convert_cover_to_pixmap(audiofile.tags[tag])
+            
+            # For ID3v2.3 and earlier, look for APIC frames
+            if hasattr(audiofile, "tags") and hasattr(audiofile.tags, "getall"):
+                for apic in audiofile.tags.getall("APIC"):
+                    return self._convert_cover_to_pixmap(apic)
+            
+            return None
+        except Exception as e:
+            logging.exception(f"Error reading album art for file {file_path}: {e}")
+            return None
+        
+    def _convert_cover_to_pixmap(self, cover_data: bytes) -> Optional[QPixmap]:
+        """Convert raw album art data to a QPixmap."""
+        try:
+            pixmap = QPixmap()
+            if isinstance(cover_data, mutagen.id3.APIC):
+                cover_data = cover_data.data
+            if pixmap.loadFromData(cover_data):
+                return pixmap
+            else:
+                logging.warning("Failed to convert album art data to QPixmap")
+                return None
+        except Exception as e:
+            logging.exception(f"Error converting album art to QPixmap: {e}")
+            return None

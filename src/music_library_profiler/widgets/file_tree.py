@@ -10,6 +10,8 @@ from PyQt6.QtWidgets import (
     QTreeWidget, QTreeWidgetItem, QAbstractItemView
 )
 
+from core.metadata_reader import MetadataReader
+
 logger = logging.getLogger(__name__)
 
 
@@ -46,8 +48,8 @@ class FileTreeWidget(QTreeWidget):
         artists = {}
         for track in all_tracks:
             artist = artist = track["artist"] if track.get("artist", "Unknown Artist") is not None else "Unknown Artist"
-            album = track["album"] if track.get("album", "Unknown Album") is not None else "Unknown Album"
-            title = track["title"] if track.get("title", Path(track["file_path"]).stem) is not None else Path(track["file_path"]).stem
+            album = track["album"] if track.get("album") is not None else "Unknown Album"
+            title = track["title"] if track.get("title") is not None else Path(track["file_path"]).stem
             file_path = track["file_path"]
             assert file_path is not None, f"Track {title} is missing a file path!"
             
