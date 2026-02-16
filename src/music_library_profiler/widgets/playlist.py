@@ -116,25 +116,34 @@ class PlaylistListWidget(QListWidget):
         if from external source (file manager or other widgets) -> add tracks.
         """
         if event.source() == self and event.dropAction() == Qt.DropAction.MoveAction:
-            # Internal reordering: let base class handle it
+            # Internal drop
             super().dropEvent(event)
         else:
-            # External drop: extract URLs and add tracks
+            # External drop
             urls = event.mimeData().urls()
             for url in urls:
                 if url.isLocalFile():
                     file_path = url.toLocalFile()
-                    # Here you should fetch full metadata from the database.
-                    # For simplicity, we create minimal track_data; you can enhance this.
-                    track_data = {
-                        "file_path": file_path,
-                        "title": Path(file_path).stem,
-                        "artist": "Unknown Artist",
-                        "album": "Unknown Album",
-                        "album_art": None
-                    }
-                    # Optional: look up in database to get richer metadata
-                    # (you might need to pass the database reference)
+
+                    if self.database:
+                        track_data = self.database.get_track_by_path(file_path)
+                        if track_data is None:
+                            logger.warning(f"Track not found in database for path: {file_path}")
+                            track_data = {
+                                "file_path": file_path,
+                                "title": Path(file_path).stem,
+                                "artist": "Unknown Artist",
+                                "album": "Unknown Album",
+                                "album_art": None
+                            }
+                    else: 
+                        track_data = {
+                            "file_path": file_path,
+                            "title": Path(file_path).stem,
+                            "artist": "Unknown Artist",
+                            "album": "Unknown Album",
+                            "album_art": None
+                        }
                     self.add_track(track_data)
             event.accept()
     
