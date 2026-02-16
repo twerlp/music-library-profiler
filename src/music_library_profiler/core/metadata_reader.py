@@ -63,7 +63,7 @@ class MetadataReader:
                 continue
         return None
     
-    def read_album_art(self, file_path: Path) -> Optional[bytes]:
+    def read_album_art(self, file_path: Path) -> Optional[QPixmap]:
         """Extract album art from the audio file if available."""
         try:
             print(f"Attempting to read album art from file: {file_path}")

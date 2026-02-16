@@ -53,7 +53,7 @@ class RequestedSongListWidget(BaseSongListWidget):
         if from external source (file manager or other widgets) -> add tracks.
         """
         if event.source() == self and event.dropAction() == Qt.DropAction.MoveAction:
-            # Internal drop
+            # Internal drop TODO: this doesn't work properly, internal drop treated as external drop, track duplicated instead of moved
             super().dropEvent(event)
         else:
             # External drop
