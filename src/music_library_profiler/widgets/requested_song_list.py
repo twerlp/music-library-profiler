@@ -38,12 +38,19 @@ class RequestedSongListWidget(BaseSongListWidget):
         else:
             super().dragEnterEvent(event)   # or event.ignore()
 
+    def dragMoveEvent(self, event):
+        """Accept drags that contain local file URLs."""
+        if event.mimeData().hasUrls():
+            event.accept()
+        else:
+            super().dragMoveEvent(event)
+        
+
     def dropEvent(self, event):
         """
         Handle drops: if from same widget -> internal move (reorder);
         if from external source (file manager or other widgets) -> add tracks.
         """
-        print("Drop event in RequestedSongListWidget")
         if event.source() == self and event.dropAction() == Qt.DropAction.MoveAction:
             # Internal reordering: let base class handle it
             super().dropEvent(event)

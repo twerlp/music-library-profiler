@@ -101,7 +101,14 @@ class PlaylistListWidget(QListWidget):
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
         else:
-            super().dragEnterEvent(event)   # or event.ignore()
+            super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event):
+        """Accept drags that contain local file URLs."""
+        if event.mimeData().hasUrls():
+            event.accept()
+        else:
+            super().dragMoveEvent(event)
     
     def dropEvent(self, event):
         """

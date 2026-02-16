@@ -139,24 +139,20 @@ class MainWindow(QMainWindow):
     def _on_scan_started(self, directory):
         """Handle the start of a scan."""
         self._on_directory_selected(directory)  # Save selected directory to config
-        logger.info(f"Scan started for directory: {directory}")
         self.statusBar().showMessage(f"Scanning: {directory}")
     
     def _on_scan_progress(self, current, total, message):
         """Handle scan progress updates."""
-        logger.info(f"Scan progress: {current}/{total} - {message}")
         self.statusBar().showMessage(f"Scanning: {message} ({current}/{total})")
     
     def _on_scan_finished(self, results):
         """Handle the completion of a scan."""
-        logger.info("Scan finished.")
         self.statusBar().showMessage(
             f"Scan complete! Processed {len(results['successful_files'])}/{results['total_files']} files"
         )
     
     def _on_scan_error(self, error_message):
         """Handle errors that occur during scanning."""
-        logger.error(f"Scan error: {error_message}")
         self.statusBar().showMessage(f"Scan error: {error_message}")
     
     def _load_config(self):
