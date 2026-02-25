@@ -116,7 +116,7 @@ class PlaylistListWidget(QListWidget):
         if from external source (file manager or other widgets) -> add tracks.
         """
         if event.source() == self and event.dropAction() == Qt.DropAction.MoveAction:
-            # Internal drop
+            # Internal drop TODO: this doesn't work properly, internal drop treated as external drop, track duplicated instead of moved
             super().dropEvent(event)
         else:
             # External drop
@@ -125,8 +125,8 @@ class PlaylistListWidget(QListWidget):
                 if url.isLocalFile():
                     file_path = url.toLocalFile()
 
-                    if self.database:
-                        track_data = self.database.get_track_by_path(file_path)
+                    if self.database is not None:
+                        track_data = self.database.get_track_metadata_by_id(self.database.get_track_id_by_path(file_path))
                         if track_data is None:
                             logger.warning(f"Track not found in database for path: {file_path}")
                             track_data = {
@@ -136,7 +136,7 @@ class PlaylistListWidget(QListWidget):
                                 "album": "Unknown Album",
                                 "album_art": None
                             }
-                    else: 
+                    else:
                         track_data = {
                             "file_path": file_path,
                             "title": Path(file_path).stem,

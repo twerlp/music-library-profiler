@@ -83,13 +83,13 @@ class MainWindow(QMainWindow):
         similar_track_splitter = QSplitter(Qt.Orientation.Vertical)
         main_splitter.addWidget(similar_track_splitter)
 
-        self.similar_track_request_list = RequestedSongListWidget()
+        self.similar_track_request_list = RequestedSongListWidget(self)
         similar_track_splitter.addWidget(self.similar_track_request_list)
 
         self.similar_track_request_list.add_track(self.database.get_track_metadata_by_id(1))
         self.similar_track_request_list.add_track(self.database.get_track_metadata_by_id(300))
 
-        self.similar_tracks_generate_list = GeneratedSongListWidget()
+        self.similar_tracks_generate_list = GeneratedSongListWidget(self)
         similar_track_splitter.addWidget(self.similar_tracks_generate_list)
     
     def closeEvent(self, event):

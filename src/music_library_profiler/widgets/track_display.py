@@ -33,5 +33,5 @@ class TrackDisplayWidget(QWidget):
         title_label = QLabel(track_data["title"] if track_data.get("title") is not None else "Unknown")
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title_label.setWordWrap(True)
-        title_label.setFont(QFont("", 9))
+        title_label.setFont(QFont("DejaVu Sans", 9))
         layout.addWidget(title_label)

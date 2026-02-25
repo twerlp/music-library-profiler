@@ -1,4 +1,4 @@
-# requested_song_list.py - Widget for displaying a horizontal scrolling list of requested songs with album art
+# requested_song_list.py - Widget for displaying a grid list of requested songs with album art
 
 import logging
 
@@ -16,10 +16,10 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# Widget for displaying a horizontal scrolling list of songs with album art
+# Widget for displaying a grid list of songs with album art
 # To be used for showing tracks we want to find similar ones to
 class RequestedSongListWidget(BaseSongListWidget):
-    """Horizontal scrolling list of tracks. Dragging enabled."""
+    """Grid list of tracks. Dragging enabled."""
     
     track_double_clicked = pyqtSignal(str)
     
@@ -27,6 +27,8 @@ class RequestedSongListWidget(BaseSongListWidget):
         super().__init__(parent)
         self.setAcceptDrops(True)
         self.database = parent.database if parent and hasattr(parent, "database") else None
+        print("parent:", parent)
+        print("RequestedSongListWidget initialized with database:", self.database)
 
     def supportedDropActions(self):
         """Allow both copy and move actions."""
@@ -62,8 +64,8 @@ class RequestedSongListWidget(BaseSongListWidget):
                 if url.isLocalFile():
                     file_path = url.toLocalFile()
 
-                    if self.database:
-                        track_data = self.database.get_track_by_path(file_path)
+                    if self.database is not None:
+                        track_data = self.database.get_track_metadata_by_id(self.database.get_track_id_by_path(file_path))
                         if track_data is None:
                             logger.warning(f"Track not found in database for path: {file_path}")
                             track_data = {
@@ -73,7 +75,7 @@ class RequestedSongListWidget(BaseSongListWidget):
                                 "album": "Unknown Album",
                                 "album_art": None
                             }
-                    else: 
+                    else:
                         track_data = {
                             "file_path": file_path,
                             "title": Path(file_path).stem,

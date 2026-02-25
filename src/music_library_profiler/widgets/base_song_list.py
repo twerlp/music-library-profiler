@@ -13,18 +13,17 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# Widget for displaying a horizontal scrolling list of songs with album art
+# Widget for displaying a grid list of songs with album art
 class BaseSongListWidget(QListWidget):
-    """Horizontal scrolling list of tracks. Dragging enabled."""
+    """Grid list of tracks. Dragging enabled."""
     
     track_double_clicked = pyqtSignal(str)
     
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFlow(QListView.Flow.LeftToRight)
-        self.setWrapping(False)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setWrapping(True)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.setIconSize(QSize(64, 64))
         self.setGridSize(QSize(120, 100))
         self.setViewMode(QListView.ViewMode.IconMode)
