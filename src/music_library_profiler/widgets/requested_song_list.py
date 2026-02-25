@@ -2,14 +2,8 @@
 
 import logging
 
-from PyQt6.QtCore import Qt, pyqtSignal, QSize, QMimeData, QUrl
-from PyQt6.QtGui import QFont, QIcon
-from PyQt6.QtWidgets import (
-    QListWidget, QListWidgetItem, QWidget, QVBoxLayout, 
-    QLabel, QAbstractItemView, QListView
-)
+from PyQt6.QtCore import Qt, pyqtSignal
 
-from widgets.track_display import TrackDisplayWidget
 from widgets.base_song_list import BaseSongListWidget
 
 from pathlib import Path
@@ -21,7 +15,7 @@ logger = logging.getLogger(__name__)
 class RequestedSongListWidget(BaseSongListWidget):
     """Grid list of tracks. Dragging enabled."""
     
-    track_double_clicked = pyqtSignal(str)
+    track_added = pyqtSignal()
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -30,7 +24,7 @@ class RequestedSongListWidget(BaseSongListWidget):
         print("parent:", parent)
         print("RequestedSongListWidget initialized with database:", self.database)
 
-    def supportedDropActions(self):
+    def supportedDropActions(self) -> Qt.DropAction:
         """Allow both copy and move actions."""
         return Qt.DropAction.CopyAction | Qt.DropAction.MoveAction
     
@@ -84,4 +78,6 @@ class RequestedSongListWidget(BaseSongListWidget):
                             "album_art": None
                         }
                     self.add_track(track_data)
+                    self.track_added.emit()
+
             event.accept()

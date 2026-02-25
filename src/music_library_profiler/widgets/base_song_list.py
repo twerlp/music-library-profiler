@@ -1,6 +1,7 @@
 # base_song_list.py - Base class for song list widgets (RequestedSongListWidget and GeneratedSongListWidget)
 
 import logging
+from typing import Dict, List
 
 from PyQt6.QtCore import Qt, pyqtSignal, QSize, QMimeData, QUrl
 from PyQt6.QtWidgets import (
@@ -8,6 +9,7 @@ from PyQt6.QtWidgets import (
 )
 
 from widgets.track_display import TrackDisplayWidget
+from core.features import Features
 
 from pathlib import Path
 
@@ -35,10 +37,10 @@ class BaseSongListWidget(QListWidget):
         
         self.itemDoubleClicked.connect(self._on_item_double_clicked)
 
-    def add_track(self, track_data):
+    def add_track(self, track_data: Dict):
         """
         Add a track to the horizontal list.
-        track_data: dict with keys 'file_path', 'title', 'album_art' (QPixmap)
+        track_data: metadata dict
         """
         item = QListWidgetItem()
         item.setData(Qt.ItemDataRole.UserRole, track_data["file_path"])
@@ -46,8 +48,31 @@ class BaseSongListWidget(QListWidget):
         item.setSizeHint(self.gridSize())
         self.addItem(item)
         self.setItemWidget(item, widget)
+
+    def add_tracks(self, tracks: List[Dict]):
+        """Add multiple tracks."""
+        for track_data in tracks:
+            self.add_track(track_data)
+
+    def remove_track(self, file_path: str):
+        """Remove a track by file path."""
+        for i in range(self.count()):
+            item = self.item(i)
+            if item.data(Qt.ItemDataRole.UserRole) == file_path:
+                self.takeItem(i)
+                return
     
-    def mimeData(self, items):
+    def get_tracks(self) -> List[str]:
+        """Return list of file paths for all tracks in the list."""
+        tracks = []
+        for i in range(self.count()):
+            item = self.item(i)
+            file_path = item.data(Qt.ItemDataRole.UserRole)
+            if file_path:
+                tracks.append(file_path)
+        return tracks
+    
+    def mimeData(self, items: List[QListWidgetItem]) -> QMimeData:
         """Provide URLs for the dragged track."""
         if not items:
             return None

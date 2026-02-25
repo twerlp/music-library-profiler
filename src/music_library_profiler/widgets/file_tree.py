@@ -28,7 +28,7 @@ class FileTreeWidget(QTreeWidget):
         self.setHeaderLabel("Music Library")
         self.setAlternatingRowColors(True)
         self.setSortingEnabled(True)
-        self.setDragEnabled(True)                     # enable dragging
+        self.setDragEnabled(True)
         self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.itemDoubleClicked.connect(self._on_item_double_clicked)
         

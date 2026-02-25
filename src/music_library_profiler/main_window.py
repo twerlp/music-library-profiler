@@ -30,7 +30,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.database = Database()
         self.config = ConfigManager()
-        self.track_similairty = TrackSimilarity(self.database)
+        self.track_similarity = TrackSimilarity(self.database)
 
         self._init_ui()
         self._init_scan_manager()
@@ -43,8 +43,8 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Ready")
 
         #TODO: Replace this with the track similarity button, this is purely for debug purposes
-        # self.track_similairty.find_similar_tracks_to("/home/twerp/Music/Windows 96 - Dated New Aesthetic/01 - Windows 96 - Nome Da Musica.mp3", 500)
-        playlist = self.track_similairty.create_playlist_include_track_direction(
+        # self.track_similarity.find_similar_tracks_to("/home/twerp/Music/Windows 96 - Dated New Aesthetic/01 - Windows 96 - Nome Da Musica.mp3", 500)
+        playlist = self.track_similarity.create_playlist_include_track_direction(
             source_track_path=Path("/home/twerp/Music/Windows 96 - Dated New Aesthetic/01 - Windows 96 - Nome Da Musica.mp3"),
             # destination_track_path=Path("/home/twerp/Music/Judy Collins - Wind Beneath My Wings/04 - Judy Collins - Cats In The Cradle.mp3"),
             destination_track_path=Path("/home/twerp/Music/greenhouse - _SNDWRK-gh/greenhouse - _SNDWRK-gh - 01 国際信号旗K.m4a"),
@@ -86,11 +86,13 @@ class MainWindow(QMainWindow):
         self.similar_track_request_list = RequestedSongListWidget(self)
         similar_track_splitter.addWidget(self.similar_track_request_list)
 
-        self.similar_track_request_list.add_track(self.database.get_track_metadata_by_id(1))
-        self.similar_track_request_list.add_track(self.database.get_track_metadata_by_id(300))
-
         self.similar_tracks_generate_list = GeneratedSongListWidget(self)
         similar_track_splitter.addWidget(self.similar_tracks_generate_list)
+
+        self.similar_track_request_list.track_added.connect(self._on_track_added_to_request_list)
+
+        self.similar_track_request_list.add_track(self.database.get_track_metadata_by_id(1))
+        self.similar_track_request_list.add_track(self.database.get_track_metadata_by_id(300))
     
     def closeEvent(self, event):
         """Handle window close event to save window geometry."""
@@ -102,7 +104,7 @@ class MainWindow(QMainWindow):
 
     def _init_scan_manager(self):
         """Initialize the scan manager window."""
-        self.scan_manager_window = ScanWindow(self, config=self.config, database=self.database, track_similarity=self.track_similairty)
+        self.scan_manager_window = ScanWindow(self, config=self.config, database=self.database, track_similarity=self.track_similarity)
         self.scan_manager_window.hide()
 
         self.scan_manager_window.scan_start.connect(self._on_scan_started)
@@ -172,3 +174,11 @@ class MainWindow(QMainWindow):
         """Update window title based on current playlist"""
         current_playlist = self.config.get("current_playlist", "No playlist loaded")
         self.setWindowTitle(f"Music Library Profiler -- {current_playlist}")
+
+    def _on_track_added_to_request_list(self):
+        """Handle tracks being added to the similar track request list."""
+        tracks = self.similar_track_request_list.get_tracks()
+        playlist = self.track_similarity.create_playlist_multitrack_interpolate(track_paths=tracks, num_tracks_between=5)
+        track_metadata_list = self.database.get_track_metadata_by_ids(playlist)
+        self.similar_tracks_generate_list.clear()
+        self.similar_tracks_generate_list.add_tracks(track_metadata_list)

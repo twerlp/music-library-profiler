@@ -20,13 +20,11 @@ class PlaylistListWidget(QListWidget):
         self.setAlternatingRowColors(True)
         self.setIconSize(QSize(48, 48))
         
-        # --- Drag & Drop setup ---
-        self.setDragEnabled(True)                     # can drag items out
-        self.setAcceptDrops(True)                     # can receive drops
-        self.setDropIndicatorShown(True)              # show drop location
-        self.setDragDropMode(QAbstractItemView.DragDropMode.DragDrop)  # allow both
-        self.setDefaultDropAction(Qt.DropAction.MoveAction)           # internal move
-        # -------------------------------------------------
+        self.setDragEnabled(True)
+        self.setAcceptDrops(True)
+        self.setDropIndicatorShown(True)
+        self.setDragDropMode(QAbstractItemView.DragDropMode.DragDrop)
+        self.setDefaultDropAction(Qt.DropAction.MoveAction)
         
         self.itemDoubleClicked.connect(self._on_item_double_clicked)
     

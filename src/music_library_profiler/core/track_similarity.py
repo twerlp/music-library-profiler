@@ -194,7 +194,54 @@ class TrackSimilarity:
         if destination_track_id not in playlist:
             playlist.append(destination_track_id)
         
-        return playlist    
+        return playlist
+    
+    def create_playlist_multitrack_interpolate(self, track_paths: List[Path], num_tracks_between: int) -> Optional[List[int]]:
+        if len(track_paths) < 2:
+            logger.error("At least two tracks are required to create a playlist")
+            return None
+        
+        playlist = []
+        for i in range(len(track_paths) - 1):
+            segment = self.create_playlist_include_track_direction(
+                source_track_path=track_paths[i],
+                destination_track_path=track_paths[i + 1],
+                num_tracks=num_tracks_between
+            )
+            if segment is None:
+                continue
+            playlist.extend(segment[:-1])  # Exclude last track to avoid duplicates
+        
+        final_track = self.database.get_track_id_by_path(file_path=track_paths[-1])
+        playlist.append(final_track)  # Add final track
+        return playlist
+    
+    def create_playlist_multitrack_related(self, track_paths: List[Path], num_tracks_per_track: int) -> Optional[List[int]]:
+        if len(track_paths) == 0:
+            logger.error("At least one track is required to create a playlist")
+            return None
+        
+        playlist = []
+        for track_path in track_paths:
+            track_id = self.database.get_track_id_by_path(file_path=track_path)
+            if track_id is None:
+                logger.warning(f"Track not found for path: {track_path}")
+                continue
+            
+            similar_tracks = self.find_similar_tracks_to(
+                track_id=track_id,
+                num_tracks=num_tracks_per_track
+            )
+            if similar_tracks is None:
+                continue
+            
+            # Add the original track and its similar tracks
+            playlist.append(track_id)
+            for similar_track_id, _ in similar_tracks:
+                if similar_track_id != track_id and similar_track_id not in playlist:
+                    playlist.append(similar_track_id)
+        
+        return playlist
 
 
     def get_weighted_score(self, hpcp_score: Optional[float], genre_score: Optional[float]) -> float:

@@ -274,6 +274,21 @@ class Database:
             logger.error(f"Error fetching track by ID {track_id}: {e}")
             return None
         
+    def get_track_metadata_by_ids(self, track_ids: List[int]) -> List[Dict]:
+        """Fetch multiple tracks by their IDs."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                placeholders = ','.join(['?'] * len(track_ids))
+                cursor = conn.execute(f'SELECT * FROM track_metadata WHERE id IN ({placeholders})', track_ids)
+                tracks = []
+                for row in cursor.fetchall():
+                    track = {list(const.METADATA_FIELD_TYPES.keys())[i]: row[i+1] for i in range(len(const.METADATA_FIELD_TYPES.keys()))}
+                    tracks.append(track)
+                return tracks
+        except Exception as e:
+            logger.error(f"Error fetching tracks by IDs {track_ids}: {e}")
+            return []
+        
     def get_track_ids_by_paths(self, file_paths: List[Path]) -> Dict[str, int]:
         """Get multiple track_ids at once."""
         try:
