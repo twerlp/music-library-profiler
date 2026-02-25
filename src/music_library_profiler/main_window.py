@@ -179,6 +179,6 @@ class MainWindow(QMainWindow):
         """Handle tracks being added to the similar track request list."""
         tracks = self.similar_track_request_list.get_tracks()
         playlist = self.track_similarity.create_playlist_multitrack_interpolate(track_paths=tracks, num_tracks_between=5)
-        track_metadata_list = self.database.get_track_metadata_by_ids(playlist)
+        track_metadata_list = [self.database.get_track_metadata_by_id(track_id) for track_id in playlist]
         self.similar_tracks_generate_list.clear()
         self.similar_tracks_generate_list.add_tracks(track_metadata_list)
