@@ -9,6 +9,8 @@ logger = logging.getLogger(__name__)
 class Player(QObject):
     track_changed = pyqtSignal(str)
     playback_state_changed = pyqtSignal(QMediaPlayer.PlaybackState)
+    position_changed = pyqtSignal('qint64')
+    duration_changed = pyqtSignal('qint64')
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -21,6 +23,8 @@ class Player(QObject):
 
         self._player.mediaStatusChanged.connect(self._on_media_status_changed)
         self._player.playbackStateChanged.connect(self.playback_state_changed)
+        self._player.positionChanged.connect(self.position_changed)
+        self._player.durationChanged.connect(self.duration_changed)
 
     @property
     def playlist(self):

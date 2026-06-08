@@ -14,6 +14,7 @@ import utils.resource_manager as rm
 
 from widgets.scan_window import ScanWindow
 from widgets.file_tree import FileTreeWidget
+from widgets.player_widget import PlayerWidget
 from widgets.playlist import PlaylistListWidget
 from widgets.generated_song_list import GeneratedSongListWidget
 from widgets.requested_song_list import RequestedSongListWidget
@@ -78,6 +79,9 @@ class MainWindow(QMainWindow):
 
         main_splitter = QSplitter(Qt.Orientation.Horizontal)
         layout.addWidget(main_splitter)
+
+        self.player_widget = PlayerWidget(self.player)
+        layout.addWidget(self.player_widget)
 
         self.file_tree = FileTreeWidget(self.database)
         main_splitter.addWidget(self.file_tree)
