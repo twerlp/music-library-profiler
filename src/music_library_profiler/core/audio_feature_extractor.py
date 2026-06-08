@@ -113,27 +113,38 @@ class AudioFeatureExtractor:
                     else:
                         logger.warning(f"No feature data extracted for {inverse_mapping[track_id]}")
                         errors.append(f"No feature data: {inverse_mapping[track_id]}")
-                    
-                    # Store to database if we have reached the batch size
-                    if len(current_feature_batch) >= batch_size:
-                        stored_in_batch = self._store_batch(feature_batch=current_feature_batch)
-                        total_stored += len(stored_in_batch)
-                        successful_files | stored_in_batch
-                        current_feature_batch.clear()
-                        logger.debug(f"Processed batch: {i+1}/{len(missing_hpcps)} files, stored {len(stored_in_batch)} tracks' features.")
 
                 except Exception as e:
-                    error_msg = f"Error processing {self.database.get_track_metadata_by_id(track_id)["file_name"]}: {e}"
+                    track_metadata = self.database.get_track_metadata_by_id(track_id)
+                    file_name = track_metadata["file_name"] if track_metadata else "unknown"
+                    error_msg = f"Error processing {file_name}: {e}"
                     errors.append(error_msg)
                     logger.exception(error_msg)
                     continue
+
+                if len(current_feature_batch) >= batch_size:
+                    stored_in_batch = set()
+                    try:
+                        stored_in_batch = self._store_batch(feature_batch=current_feature_batch)
+                        total_stored += len(stored_in_batch)
+                        successful_files |= stored_in_batch
+                    except Exception as e:
+                        logger.exception(f"Error storing batch: {e}")
+                        errors.append(f"Batch store error: {e}")
+                    current_feature_batch.clear()
+                    logger.debug(f"Processed batch: {i+1}/{len(missing_hpcps)} files, stored {len(stored_in_batch)} tracks' features.")
         
         # Store stragglers (final batch) to database
         if current_feature_batch:
-            stored_in_batch = self._store_batch(feature_batch=current_feature_batch)
-            total_stored += len(stored_in_batch)
-            successful_files | stored_in_batch
-            logger.debug(f"Processed batch: {i+1}/{len(missing_hpcps)} files, stored {len(stored_in_batch)} tracks' features")
+            stored_in_batch = set()
+            try:
+                stored_in_batch = self._store_batch(feature_batch=current_feature_batch)
+                total_stored += len(stored_in_batch)
+                successful_files |= stored_in_batch
+            except Exception as e:
+                logger.exception(f"Error storing final batch: {e}")
+                errors.append(f"Final batch store error: {e}")
+            logger.debug(f"Processed final batch: stored {len(stored_in_batch)} tracks' features")
 
         logger.info(f"Feature extraction complete. Processed: {total_processed}, Stored: {total_stored}, Errors: {len(errors)}")
 
@@ -232,8 +243,10 @@ def find_bpm(audio_time_series: np.ndarray, sampling_rate: int) -> Tuple[np.floa
 def find_genre(audio_file_path: Path, model, loader) -> np.ndarray:
     loader.configure(filename=str(audio_file_path), sampleRate=16000, resampleQuality=4)
     audio = loader()
-    embeddings = model(audio) #ndarray of shape (x, 1280)
-    flattened_embeddings = np.mean(embeddings, axis=0) # Average pooling to get a single embedding
+    embeddings = model(audio)
+    if embeddings.ndim == 1:
+        embeddings = embeddings.reshape(1, -1)
+    flattened_embeddings = np.mean(embeddings, axis=0)
     return flattened_embeddings
 
 def load_audio_file(audio_file_path: Path):

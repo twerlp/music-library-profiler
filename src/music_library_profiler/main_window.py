@@ -8,6 +8,7 @@ from PyQt6.QtCore import Qt, QThread
 
 from core.config_manager import ConfigManager
 from core.database import Database
+from core.player import Player
 from core.track_similarity import TrackSimilarity
 import utils.resource_manager as rm
 
@@ -30,6 +31,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.database = Database()
         self.config = ConfigManager()
+        self.player = Player(self)
         self.track_similarity = TrackSimilarity(self.database)
 
         self._init_ui()
@@ -43,17 +45,17 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Ready")
 
         #TODO: Replace this with the track similarity button, this is purely for debug purposes
-        # self.track_similarity.find_similar_tracks_to("/home/twerp/Music/Windows 96 - Dated New Aesthetic/01 - Windows 96 - Nome Da Musica.mp3", 500)
+        self.track_similarity.find_similar_tracks_to("/mnt/c/Users/cooco/Music/SAINT PEPSI - triumph international/SAINT PEPSI - triumph international - 13 p.e.p.s.i contigo..m4a", 50)
         playlist = self.track_similarity.create_playlist_include_track_direction(
-            source_track_path=Path("/home/twerp/Music/Windows 96 - Dated New Aesthetic/01 - Windows 96 - Nome Da Musica.mp3"),
+            source_track_path=Path("/mnt/c/Users/cooco/Music/FM Skyline - EarthSim/FM Skyline - EarthSim - 12 end program.mp3"),
             # destination_track_path=Path("/home/twerp/Music/Judy Collins - Wind Beneath My Wings/04 - Judy Collins - Cats In The Cradle.mp3"),
-            destination_track_path=Path("/home/twerp/Music/greenhouse - _SNDWRK-gh/greenhouse - _SNDWRK-gh - 01 国際信号旗K.m4a"),
+            destination_track_path=Path("/mnt/c/Users/cooco/Music/binary deconstructed - pre Naomi/binary deconstructed - pre Naomi - 06 warm 31824.mp3"),
             num_tracks=10)
         print("Generated playlist:")
         for track in playlist:
             print(self.database.get_track_metadata_by_id(track)["file_path"])
         # Create menu
-        # file_menu = self.menuBar().addMenu("File")
+        file_menu = self.menuBar().addMenu("File")
         
         # Set window icon
         try:
@@ -91,8 +93,15 @@ class MainWindow(QMainWindow):
 
         self.similar_track_request_list.track_added.connect(self._on_track_added_to_request_list)
 
-        self.similar_track_request_list.add_track(self.database.get_track_metadata_by_id(1))
-        self.similar_track_request_list.add_track(self.database.get_track_metadata_by_id(300))
+        self.file_tree.track_double_clicked.connect(
+            lambda fp: self._play_from_widget(fp, self.file_tree.get_all_track_paths()))
+        self.similar_track_request_list.track_double_clicked.connect(
+            lambda fp: self._play_from_widget(fp, self.similar_track_request_list.get_tracks()))
+        self.similar_tracks_generate_list.track_double_clicked.connect(
+            lambda fp: self._play_from_widget(fp, self.similar_tracks_generate_list.get_tracks()))
+
+        # self.similar_track_request_list.add_track(self.database.get_track_metadata_by_id(1))
+        # self.similar_track_request_list.add_track(self.database.get_track_metadata_by_id(300))
     
     def closeEvent(self, event):
         """Handle window close event to save window geometry."""
@@ -182,3 +191,7 @@ class MainWindow(QMainWindow):
         track_metadata_list = [self.database.get_track_metadata_by_id(track_id) for track_id in playlist]
         self.similar_tracks_generate_list.clear()
         self.similar_tracks_generate_list.add_tracks(track_metadata_list)
+
+    def _play_from_widget(self, file_path, playlist):
+        """Play a track from a widget and set the widget's track list as the playlist queue."""
+        self.player.set_playlist_and_play(file_path, playlist)

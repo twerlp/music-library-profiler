@@ -54,7 +54,7 @@ class Scanner:
         )
 
         logging.info("Scanning complete.")
-        logging.info(f"Processed {overall_results["total_files"]} files.")
+        logging.info(f"Processed {overall_results['total_files']} files.")
 
         if self.progress_callback:
             self.progress_callback(overall_results["total_files"], overall_results["total_files"], "Scan complete!")

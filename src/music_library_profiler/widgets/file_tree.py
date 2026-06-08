@@ -92,6 +92,22 @@ class FileTreeWidget(QTreeWidget):
             return mime_data
         return super().mimeData(items)
     
+    def get_all_track_paths(self):
+        """Return all track file paths in depth-first tree order."""
+        paths = []
+        for i in range(self.topLevelItemCount()):
+            self._collect_track_paths(self.topLevelItem(i), paths)
+        return paths
+
+    def _collect_track_paths(self, item, paths):
+        if item.childCount() == 0:
+            file_path = item.data(0, Qt.ItemDataRole.UserRole)
+            if file_path:
+                paths.append(file_path)
+        else:
+            for i in range(item.childCount()):
+                self._collect_track_paths(item.child(i), paths)
+
     def _on_item_double_clicked(self, item, column):
         """Emit file path if the double-clicked item is a track."""
         file_path = item.data(0, Qt.ItemDataRole.UserRole)

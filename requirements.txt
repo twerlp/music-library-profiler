@@ -3,3 +3,6 @@ pyinstaller
 numpy
 librosa
 mutagen
+faiss-cpu
+essentia-tensorflow
+matplotlib

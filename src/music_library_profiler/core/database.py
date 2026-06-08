@@ -25,10 +25,11 @@ class Database:
         """Create necessary tables if they don't exist. (Main thread)"""
         with sqlite3.connect(self.db_path) as conn:
             # Metadata (tracks) table
+            fields = ',\n'.join([f'{field} {sql_type}' for field, sql_type in const.METADATA_FIELD_TYPES.items()])
             conn.execute(f'''
                 CREATE TABLE IF NOT EXISTS track_metadata (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    {',\n'.join([f'{field} {sql_type}' for field, sql_type in const.METADATA_FIELD_TYPES.items()])}
+                    {fields}
                 )
             ''')
             # Scan History table
@@ -68,7 +69,7 @@ class Database:
                     [metadata.get(field) for field in const.METADATA_FIELD_TYPES.keys()]
                 ))
         except Exception as e:
-            logger.error(f"Error inserting track {metadata.get("file_name")}: {e}")
+            logger.error(f"Error inserting track {metadata.get('file_name')}: {e}")
 
     # Feature Methods
     def insert_feature(self, track_id: int, feature_data: Features) -> bool:

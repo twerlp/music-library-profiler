@@ -149,6 +149,16 @@ class PlaylistListWidget(QListWidget):
         """Remove all tracks from the playlist."""
         super().clear()
     
+    def get_tracks(self):
+        """Return list of file paths for all tracks in the playlist."""
+        tracks = []
+        for i in range(self.count()):
+            item = self.item(i)
+            file_path = item.data(Qt.ItemDataRole.UserRole)
+            if file_path:
+                tracks.append(file_path)
+        return tracks
+
     def _on_item_double_clicked(self, item):
         """Emit file path for the double-clicked track."""
         file_path = item.data(Qt.ItemDataRole.UserRole)
