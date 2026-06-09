@@ -112,6 +112,10 @@ class PlayerWidget(QWidget):
         self._player_core.playback_state_changed.connect(self._on_playback_state_changed)
         self._player_core.position_changed.connect(self._on_position_changed)
         self._player_core.duration_changed.connect(self._on_duration_changed)
+        self._player_core.error_occurred.connect(self._on_error_occurred)
+
+    def _on_error_occurred(self, message):
+        self.track_label.setText(f"[!] {message}")
 
     def _on_track_changed(self, file_path):
         self.track_label.setText(Path(file_path).stem)

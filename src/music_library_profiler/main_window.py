@@ -104,8 +104,8 @@ class MainWindow(QMainWindow):
         self.similar_tracks_generate_list.track_double_clicked.connect(
             lambda fp: self._play_from_widget(fp, self.similar_tracks_generate_list.get_tracks()))
 
-        # self.similar_track_request_list.add_track(self.database.get_track_metadata_by_id(1))
-        # self.similar_track_request_list.add_track(self.database.get_track_metadata_by_id(300))
+        self.similar_track_request_list.add_track(self.database.get_track_metadata_by_id(1))
+        self.similar_track_request_list.add_track(self.database.get_track_metadata_by_id(300))
     
     def closeEvent(self, event):
         """Handle window close event to save window geometry."""
