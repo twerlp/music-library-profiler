@@ -1,7 +1,7 @@
 # main_window.py - The main application window for Music Library Profiler.
 from PyQt6.QtWidgets import (QMainWindow, QLabel, QPushButton, QVBoxLayout, 
                              QHBoxLayout, QWidget, QProgressBar, QScrollArea, 
-                             QMenuBar, QMenu, QSplitter
+                             QMenuBar, QMenu, QSplitter, QSizePolicy
                              )
 from PyQt6.QtGui import QIcon, QFont
 from PyQt6.QtCore import Qt, QThread
@@ -81,6 +81,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(main_splitter)
 
         self.player_widget = PlayerWidget(self.player)
+        self.player_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         layout.addWidget(self.player_widget)
 
         self.file_tree = FileTreeWidget(self.database)

@@ -43,8 +43,8 @@ class PlayerWidget(QWidget):
         self._connect_signals()
 
     def _init_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(4, 4, 4, 4)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(2, 0, 2, 4)
         layout.setSpacing(2)
 
         progress_layout = QHBoxLayout()
