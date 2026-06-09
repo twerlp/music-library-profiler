@@ -6,12 +6,23 @@ from PyQt6.QtGui import QIcon
 from PyQt6.QtMultimedia import QMediaPlayer
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QSlider,
-    QLabel, QSizePolicy,
+    QLabel, QSizePolicy, QStyle,
 )
 
 import utils.resource_manager as rm
 
 logger = logging.getLogger(__name__)
+
+
+class SeekSlider(QSlider):
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            value = QStyle.sliderValueFromPosition(
+                self.minimum(), self.maximum(),
+                int(event.position().x()), self.width()
+            )
+            self.setValue(value)
+        super().mousePressEvent(event)
 
 
 class PlayerWidget(QWidget):
@@ -25,7 +36,6 @@ class PlayerWidget(QWidget):
         self._icon_next = QIcon(str(rm.project_path("assets/forward.png")))
         self._icon_volume = QIcon(str(rm.project_path("assets/volume.png")))
 
-        self._seeking = False
         self._is_muted = False
         self._pre_mute_volume = 1.0
 
@@ -45,10 +55,9 @@ class PlayerWidget(QWidget):
         self.position_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         progress_layout.addWidget(self.position_label)
 
-        self.progress_slider = QSlider(Qt.Orientation.Horizontal)
+        self.progress_slider = SeekSlider(Qt.Orientation.Horizontal)
         self.progress_slider.setRange(0, 0)
         self.progress_slider.sliderPressed.connect(self._on_slider_pressed)
-        self.progress_slider.sliderReleased.connect(self._on_slider_released)
         self.progress_slider.sliderMoved.connect(self._on_slider_moved)
         progress_layout.addWidget(self.progress_slider)
 
@@ -129,7 +138,7 @@ class PlayerWidget(QWidget):
             self.play_button.setToolTip("Play")
 
     def _on_position_changed(self, position_ms):
-        if not self._seeking:
+        if not self.progress_slider.isSliderDown():
             self.progress_slider.setValue(position_ms)
         self.position_label.setText(self._format_time(position_ms))
 
@@ -139,14 +148,11 @@ class PlayerWidget(QWidget):
         self.progress_slider.setEnabled(duration_ms > 0)
 
     def _on_slider_pressed(self):
-        self._seeking = True
-
-    def _on_slider_released(self):
-        self._seeking = False
         position_ms = self.progress_slider.value()
         self._player_core._player.setPosition(position_ms)
 
     def _on_slider_moved(self, position_ms):
+        self._player_core._player.setPosition(position_ms)
         self.position_label.setText(self._format_time(position_ms))
 
     def _on_volume_changed(self, value):
