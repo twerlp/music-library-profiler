@@ -8,13 +8,15 @@ from core.database import Database
 from core.metadata_reader import MetadataReader
 from core.track_similarity import TrackSimilarity
 from core.audio_feature_extractor import AudioFeatureExtractor
+from core.embedding_client import EmbeddingClient
 import utils.file_helpers as fh
 
 class Scanner:
-    def __init__(self, directory: Path, database: Database, track_similarity: TrackSimilarity):
+    def __init__(self, directory: Path, database: Database, track_similarity: TrackSimilarity, embedding_client: EmbeddingClient = None):
         self.directory = directory
         self.database = database
         self.track_similarity = track_similarity
+        self.embedding_client = embedding_client
         self.metadata_reader = MetadataReader()
         self.feature_extractor = None  # Placeholder for audio feature extractor
         self.progress_callback: Optional[Callable] = None
@@ -105,7 +107,7 @@ class Scanner:
 
         metadata_results = self._scan_metadata(music_files=music_files)
         
-        afe = AudioFeatureExtractor(track_list=music_files, database=self.database, progress_callback=self.progress_callback, track_similarity=self.track_similarity)
+        afe = AudioFeatureExtractor(track_list=music_files, database=self.database, progress_callback=self.progress_callback, track_similarity=self.track_similarity, embedding_client=self.embedding_client)
         hpcp_results = afe.find_features_of_list(batch_size=128, max_workers=None)
 
         if len(metadata_results["successful_files"]) and len(hpcp_results["successful_files"]):

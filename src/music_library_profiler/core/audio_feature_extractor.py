@@ -22,6 +22,8 @@ import concurrent.futures
 from core.database import Database
 from core.features import Features
 from core.track_similarity import TrackSimilarity
+from core.fingerprint import compute_fingerprint
+from core.embedding_client import EmbeddingClient
 import utils.resource_manager as rm
 
 logger = logging.getLogger(__name__)
@@ -36,12 +38,14 @@ class AudioFeatureExtractor:
                  track_list: List[Path], 
                  database: Database, 
                  track_similarity: TrackSimilarity,
-                 progress_callback: Callable = None
+                 progress_callback: Callable = None,
+                 embedding_client: EmbeddingClient = None,
                  ):
         self.track_list = track_list
         self.database = database
         self.track_similarity = track_similarity
         self.progress_callback = progress_callback
+        self.embedding_client = embedding_client
     
     def find_features_of_list(self,
                               batch_size: int = 128, 
@@ -89,7 +93,7 @@ class AudioFeatureExtractor:
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             # Submit HPCP work to the cores
             future_to_id = {
-                executor.submit(find_features_of_file, inverse_mapping[track_id], model, loader): track_id 
+                executor.submit(find_features_of_file, inverse_mapping[track_id], model, loader, self.embedding_client): track_id 
                 for track_id in missing_features
             }
 
@@ -180,16 +184,38 @@ class AudioFeatureExtractor:
             return successful_tracks
 
 
-def find_features_of_file(audio_file_path: Path, model, loader) -> Features:
-    # Load audio file
+def find_features_of_file(audio_file_path: Path, model, loader, embedding_client: EmbeddingClient = None) -> Features:
     audio_time_series, sampling_rate = load_audio_file(audio_file_path)
-    audio_time_series_clean, _ = librosa.effects.trim(audio_time_series, top_db=20) # Removes silence
 
+    fingerprint = None
+    if embedding_client:
+        try:
+            fingerprint, _ = compute_fingerprint(audio_time_series, sampling_rate)
+        except Exception:
+            pass
+
+    if fingerprint and embedding_client:
+        try:
+            cached = embedding_client.lookup(fingerprint)
+            if cached:
+                logger.info(f"Cache hit for {audio_file_path.name}")
+                return cached
+        except Exception:
+            pass
+
+    audio_time_series_clean, _ = librosa.effects.trim(audio_time_series, top_db=20)
     hpcp = find_hpcp(audio_time_series=audio_time_series_clean, sampling_rate=sampling_rate)
     bpm, beat_markers = find_bpm(audio_time_series=audio_time_series_clean, sampling_rate=sampling_rate)
     genre = find_genre(audio_file_path=audio_file_path, model=model, loader=loader)
 
     features = Features(hpcp=hpcp, bpm=float(bpm), genre=genre)
+
+    if fingerprint and embedding_client:
+        try:
+            embedding_client.upload(fingerprint, features)
+        except Exception:
+            pass
+
     return features
 
 # TODO: Consider xenharmonics/microtonal music, unconventional scales. I want a system that works for everything! Not now, not now.

@@ -22,7 +22,8 @@ class ConfigManager:
         default_config = {
             "last_directory": "",
             "window_geometry": [100, 100, 600, 400],
-            "current_playlist": None
+            "current_playlist": None,
+            "embedding_server_url": "http://localhost:8000",
         }
         
         try:

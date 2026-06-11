@@ -6,3 +6,4 @@ mutagen
 faiss-cpu
 essentia-tensorflow
 matplotlib
+requests

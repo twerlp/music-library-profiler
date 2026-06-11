@@ -10,6 +10,7 @@ from core.config_manager import ConfigManager
 from core.database import Database
 from core.player import Player
 from core.track_similarity import TrackSimilarity
+from core.embedding_client import EmbeddingClient
 import utils.resource_manager as rm
 
 from widgets.scan_window import ScanWindow
@@ -34,6 +35,7 @@ class MainWindow(QMainWindow):
         self.config = ConfigManager()
         self.player = Player(self)
         self.track_similarity = TrackSimilarity(self.database)
+        self.embedding_client = EmbeddingClient(self.config.get("embedding_server_url"))
 
         self._init_ui()
         self._init_scan_manager()
@@ -118,7 +120,7 @@ class MainWindow(QMainWindow):
 
     def _init_scan_manager(self):
         """Initialize the scan manager window."""
-        self.scan_manager_window = ScanWindow(self, config=self.config, database=self.database, track_similarity=self.track_similarity)
+        self.scan_manager_window = ScanWindow(self, config=self.config, database=self.database, track_similarity=self.track_similarity, embedding_client=self.embedding_client)
         self.scan_manager_window.hide()
 
         self.scan_manager_window.scan_start.connect(self._on_scan_started)

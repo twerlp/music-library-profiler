@@ -6,6 +6,7 @@ from typing import Callable
 from core.scanner import Scanner
 from core.database import Database
 from core.track_similarity import TrackSimilarity
+from core.embedding_client import EmbeddingClient
 
 class ScanWorker(QObject):
     """Worker for scanning music files in background thread"""
@@ -15,10 +16,10 @@ class ScanWorker(QObject):
     finished = pyqtSignal(dict)           # results dictionary
     error = pyqtSignal(str)               # error message
     
-    def __init__(self, directory: Path, database: Database, track_similarity: TrackSimilarity):
+    def __init__(self, directory: Path, database: Database, track_similarity: TrackSimilarity, embedding_client: EmbeddingClient = None):
         """Initialize worker with scanner and directory (main thread)"""
         super().__init__()
-        self.scanner = Scanner(directory=directory, database=database, track_similarity=track_similarity)
+        self.scanner = Scanner(directory=directory, database=database, track_similarity=track_similarity, embedding_client=embedding_client)
         self.scanner.set_progress_callback(self._on_progress)
         self.directory = directory
         self._is_cancelled = False

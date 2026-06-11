@@ -6,6 +6,7 @@ from PyQt6.QtGui import QIcon, QFont
 
 from widgets.directory_selector import DirectorySelector
 from core.config_manager import ConfigManager
+from core.embedding_client import EmbeddingClient
 from workers.scan_worker import ScanWorker
 
 from pathlib import Path
@@ -21,7 +22,7 @@ class ScanWindow(QDialog):
     scan_error = pyqtSignal(str)  # Signal emitted when an error occurs during scanning
     scan_progress = pyqtSignal(int, int, str)  # Signal for scan progress updates (current, total, message)
 
-    def __init__(self, parent, config=None, database=None, track_similarity=None):
+    def __init__(self, parent, config=None, database=None, track_similarity=None, embedding_client=None):
         super().__init__(parent)
         print("parent:", parent)
         self.setWindowTitle("Scan Manager")
@@ -31,6 +32,7 @@ class ScanWindow(QDialog):
         self.config = config
         self.database = database
         self.track_similarity = track_similarity
+        self.embedding_client = embedding_client
 
         layout = QVBoxLayout(self)
 
@@ -66,7 +68,7 @@ class ScanWindow(QDialog):
         self.status_label.setText("Scanning in progress...")
         
         # Initialize scanner and worker thread
-        self.scan_worker = ScanWorker(directory=Path(directory), database=self.database, track_similarity=self.track_similarity)
+        self.scan_worker = ScanWorker(directory=Path(directory), database=self.database, track_similarity=self.track_similarity, embedding_client=self.embedding_client)
 
         self.scan_thread = QThread()
         self.scan_worker.moveToThread(self.scan_thread)
