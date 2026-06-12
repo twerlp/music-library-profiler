@@ -21,7 +21,7 @@ from core.features import Features
 from core.track_similarity import TrackSimilarity
 from core.fingerprint import compute_fingerprint
 from core.embedding_client import EmbeddingClient
-from core.onnx_inference import compute_genre_embeddings, load_onnx_session
+from core.onnx_inference import compute_genre_embeddings, load_onnx_session, compute_mel, GENRE_SAMPLE_RATE
 import utils.resource_manager as rm
 
 logger = logging.getLogger(__name__)
@@ -92,131 +92,123 @@ class AudioFeatureExtractor:
         offset = 0
         while offset < total_missing:
             chunk = missing_list[offset:offset + batch_size]
-            audio_cache = {}
-            loaded = 0
 
-            for i, track_id in enumerate(chunk):
-                file_path = inverse_mapping[track_id]
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                load_futures = {}
+                for track_id in chunk:
+                    file_path = inverse_mapping[track_id]
+                    f = executor.submit(
+                        _pipeline_stage_load, file_path, self.embedding_client,
+                    )
+                    load_futures[f] = (track_id, file_path)
+
+                loaded_audio = {}
+                mels_for_onnx = []
+                track_ids_for_onnx = []
+                fingerprint_map = {}
+                completed = 0
+
+                for f in concurrent.futures.as_completed(load_futures):
+                    track_id, file_path = load_futures[f]
+                    completed += 1
+                    if self.progress_callback:
+                        self.progress_callback(offset + completed, total_missing, f"Processing {file_path}")
+
+                    try:
+                        audio, sr, fingerprint, cached, mel = f.result()
+                    except Exception:
+                        logger.warning(f"Failed to process {file_path}")
+                        continue
+
+                    if cached is not None:
+                        cache_hit_count += 1
+                        current_feature_batch[track_id] = cached
+                        if len(current_feature_batch) >= batch_size:
+                            _flush_batch()
+                        continue
+
+                    loaded_audio[track_id] = (audio, sr)
+                    mels_for_onnx.append(mel)
+                    track_ids_for_onnx.append(track_id)
+                    if fingerprint:
+                        fingerprint_map[track_id] = fingerprint
+
+                _flush_batch()
+
                 if self.progress_callback:
-                    self.progress_callback(offset + i, total_missing, f"Loading {file_path}")
-                try:
-                    audio, sampling_rate = load_audio_file(file_path)
-                    audio_cache[track_id] = (audio, sampling_rate)
-                    loaded += 1
-                except Exception:
-                    logger.warning(f"Failed to load audio for {file_path}")
+                    self.progress_callback(
+                        offset + completed, total_missing,
+                        f"Cache: {cache_hit_count}, ONNX: {len(track_ids_for_onnx)}",
+                    )
 
-            tracks_needing_genre = []
-            fingerprint_map = {}
-
-            for i, track_id in enumerate(chunk):
-                if track_id not in audio_cache:
-                    continue
-                file_path = inverse_mapping[track_id]
-                audio, sr = audio_cache[track_id]
-
-                fingerprint = None
-                if self.embedding_client:
-                    try:
-                        fingerprint, _ = compute_fingerprint(audio, sr)
-                    except Exception:
-                        pass
-
-                if fingerprint and self.embedding_client:
-                    if self.progress_callback and i % 10 == 0:
-                        self.progress_callback(offset + i, total_missing, f"Looking up {file_path}")
-                    try:
-                        cached = self.embedding_client.lookup(fingerprint)
-                        if cached:
-                            logger.info(f"Cache hit for {file_path}")
-                            cache_hit_count += 1
-                            current_feature_batch[track_id] = cached
-                            if len(current_feature_batch) >= batch_size:
-                                _flush_batch()
-                            continue
-                    except Exception:
-                        pass
-
-                if fingerprint:
-                    fingerprint_map[track_id] = fingerprint
-                tracks_needing_genre.append(track_id)
-
-            _flush_batch()
-
-            if self.progress_callback:
-                self.progress_callback(offset + loaded, total_missing, f"Cache: {cache_hit_count}, local: {len(tracks_needing_genre)}")
-
-            genre_map = {}
-            if tracks_needing_genre:
-                if onnx_session is None:
-                    onnx_session = load_onnx_session(str(EMBEDDING_MODEL_ONNX))
-                audio_list = [audio_cache[tid][0] for tid in tracks_needing_genre if tid in audio_cache]
-                valid_ids = [tid for tid in tracks_needing_genre if tid in audio_cache]
-                if audio_list:
+                genre_map = {}
+                hpcp_futures = {}
+                if track_ids_for_onnx:
+                    if onnx_session is None:
+                        onnx_session = load_onnx_session(str(EMBEDDING_MODEL_ONNX))
                     if self.progress_callback:
                         self.progress_callback(offset, total_missing, "Computing genre embeddings (ONNX)")
                     try:
-                        embeddings = compute_genre_embeddings(audio_list, onnx_session)
-                        for tid, emb in zip(valid_ids, embeddings):
-                            genre_map[tid] = emb
+                        batch = np.stack(mels_for_onnx, axis=0)
+                        results = onnx_session.run(["embeddings"], {"melspectrogram": batch})
+                        for tid, emb in zip(track_ids_for_onnx, results[0]):
+                            genre_map[tid] = emb.copy()
                     except Exception as e:
                         logger.exception(f"ONNX inference failed: {e}")
 
-            remaining = [tid for tid in tracks_needing_genre if tid in audio_cache]
-            if remaining:
-                if self.progress_callback:
-                    self.progress_callback(offset, total_missing, f"HPCP + BPM: {len(remaining)} tracks")
-
-                with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-                    future_to_id = {}
-                    for track_id in remaining:
-                        audio, sr = audio_cache[track_id]
-                        genre = genre_map.get(track_id)
-                        future = executor.submit(
-                            extract_hpcp_bpm, audio, sr, genre, inverse_mapping[track_id],
+                    if self.progress_callback:
+                        self.progress_callback(
+                            offset, total_missing,
+                            f"HPCP + BPM: {len(track_ids_for_onnx)} tracks",
                         )
-                        future_to_id[future] = track_id
 
-                    completed = 0
-                    for future in concurrent.futures.as_completed(future_to_id):
-                        track_id = future_to_id[future]
-                        file_path = inverse_mapping[track_id]
-
-                        try:
-                            feature_data = future.result()
-                            if feature_data is not None:
-                                current_feature_batch[track_id] = feature_data
-
-                                if self.embedding_client and track_id in fingerprint_map:
-                                    try:
-                                        self.embedding_client.upload(
-                                            fingerprint_map[track_id], feature_data,
-                                        )
-                                    except Exception:
-                                        pass
-                            else:
-                                logger.warning(f"No feature data extracted for {file_path}")
-                                errors.append(f"No feature data: {file_path}")
-                        except Exception as e:
-                            track_metadata = self.database.get_track_metadata_by_id(track_id)
-                            file_name = track_metadata["file_name"] if track_metadata else "unknown"
-                            error_msg = f"Error processing {file_name}: {e}"
-                            errors.append(error_msg)
-                            logger.exception(error_msg)
+                    for track_id in track_ids_for_onnx:
+                        if track_id not in loaded_audio:
                             continue
+                        audio, sr = loaded_audio[track_id]
+                        genre = genre_map.get(track_id)
+                        f = executor.submit(
+                            extract_hpcp_bpm, audio, sr, genre,
+                            inverse_mapping[track_id],
+                        )
+                        hpcp_futures[f] = (track_id, inverse_mapping[track_id])
 
-                        completed += 1
-                        if self.progress_callback and completed % 10 == 0:
-                            self.progress_callback(offset + completed, total_missing, f"HPCP + BPM: {file_path}")
+                hpcp_done = 0
+                for f in concurrent.futures.as_completed(hpcp_futures):
+                    track_id, file_path = hpcp_futures[f]
+                    try:
+                        features = f.result()
+                        if features is not None:
+                            current_feature_batch[track_id] = features
+                            if self.embedding_client and track_id in fingerprint_map:
+                                try:
+                                    self.embedding_client.upload(
+                                        fingerprint_map[track_id], features,
+                                    )
+                                except Exception:
+                                    pass
+                        else:
+                            logger.warning(f"No feature data for {file_path}")
+                            errors.append(f"No feature data: {file_path}")
+                    except Exception as e:
+                        track_metadata = self.database.get_track_metadata_by_id(track_id)
+                        file_name = track_metadata["file_name"] if track_metadata else "unknown"
+                        error_msg = f"Error processing {file_name}: {e}"
+                        errors.append(error_msg)
+                        logger.exception(error_msg)
+                        continue
 
-                        if len(current_feature_batch) >= batch_size:
-                            _flush_batch()
+                    hpcp_done += 1
+                    if self.progress_callback and hpcp_done % 10 == 0:
+                        self.progress_callback(
+                            offset + completed + hpcp_done, total_missing,
+                            f"HPCP + BPM: {file_path}",
+                        )
+
+                    if len(current_feature_batch) >= batch_size:
+                        _flush_batch()
 
             _flush_batch()
-            audio_cache.clear()
-            fingerprint_map.clear()
-            genre_map.clear()
-
             offset += len(chunk)
 
         if self.progress_callback:
@@ -328,6 +320,29 @@ def load_audio_file(audio_file_path: Path):
     """
     audio_time_series, sampling_rate = librosa.load(path=audio_file_path, sr=SAMPLING_RATE, mono=True)
     return audio_time_series, sampling_rate
+
+
+def _pipeline_stage_load(file_path: Path, embedding_client=None):
+    audio, sr = load_audio_file(file_path)
+    fingerprint = None
+    if embedding_client:
+        try:
+            fingerprint, _ = compute_fingerprint(audio, sr)
+        except Exception:
+            pass
+
+    cached = None
+    if fingerprint and embedding_client:
+        try:
+            cached = embedding_client.lookup(fingerprint)
+        except Exception:
+            pass
+
+    mel = None
+    if cached is None:
+        mel = compute_mel(audio, GENRE_SAMPLE_RATE)
+
+    return audio, sr, fingerprint, cached, mel
 
 #TODO: Implement cross-correlation for HPCP
 def compare_hpcp(hpcp1, hpcp2):
