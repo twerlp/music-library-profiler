@@ -14,8 +14,8 @@ logger = logging.getLogger(__name__)
 #TODO: Prevent SQL injection (artist/track/album names could fuck it up I think)
 
 class Database:
-    def __init__(self):
-        self.db_path = rm.project_path("database/library.db")
+    def __init__(self, db_path=None):
+        self.db_path = Path(db_path) if db_path else rm.project_path("database/library.db")
         if not self.db_path.parent.exists():
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
 

@@ -47,10 +47,14 @@ def generate_synthetic_tracks(n: int, duration: float = 10.0) -> tuple[list[Path
     paths = []
     for i in range(n):
         base_freq = 110 + i * 37
+        bpm = 100 + (i % 5) * 10
+        beat_hz = bpm / 60.0
+        envelope = 0.3 + 0.7 * (np.sin(2 * np.pi * beat_hz * t) > 0.5).astype(np.float32)
         audio = np.zeros(samples, dtype=np.float32)
         for k, amp in enumerate([0.5, 0.25, 0.12, 0.06], 1):
             audio += amp * np.sin(2 * np.pi * base_freq * k * t)
-        audio /= np.abs(audio).max()
+        audio *= envelope
+        audio /= np.abs(audio).max() + 1e-6
         filename = temp_dir / f"synth_track_{i:04d}.wav"
         import soundfile as sf
         sf.write(str(filename), audio, sr)
@@ -146,6 +150,15 @@ def main():
             sample_tid, sample_feat = next(iter(all_features.items()))
             logger.info(f"Sample feature check — hpcp={sample_feat.hpcp.shape}, bpm={sample_feat.bpm}, genre={sample_feat.genre.shape}")
 
+        errors = _validate_features(all_features)
+        if errors:
+            logger.error(f"VALIDATION FAILED — {len(errors)} error(s):")
+            for msg in errors[:10]:
+                logger.error(f"  {msg}")
+            return 1
+        else:
+            logger.info("VALIDATION PASSED — HPCP, BPM, genre embeddings correct for all tracks")
+
     finally:
         if temp_dir:
             import shutil
@@ -154,6 +167,56 @@ def main():
             import shutil
             shutil.rmtree(db_dir, ignore_errors=True)
 
+    return 0
+
+
+def _validate_features(features: dict[int, Features]) -> list[str]:
+    errors = []
+    for tid, feat in features.items():
+        if feat is None:
+            errors.append(f"track_id={tid}: Features is None")
+            continue
+
+        hpcp = feat.hpcp
+        if hpcp is None:
+            errors.append(f"track_id={tid}: HPCP is None")
+        elif not isinstance(hpcp, np.ndarray):
+            errors.append(f"track_id={tid}: HPCP is not ndarray ({type(hpcp).__name__})")
+        else:
+            if hpcp.shape != (12,):
+                errors.append(f"track_id={tid}: HPCP shape {hpcp.shape}, expected (12,)")
+            if not np.isfinite(hpcp).all():
+                errors.append(f"track_id={tid}: HPCP contains NaN/Inf")
+            if np.sum(hpcp) <= 0:
+                errors.append(f"track_id={tid}: HPCP sum is {np.sum(hpcp):.4f}, expected > 0")
+            if abs(np.sum(hpcp) - 1.0) > 0.01:
+                errors.append(f"track_id={tid}: HPCP sum {np.sum(hpcp):.4f} not within 0.01 of 1.0")
+            if (hpcp < 0).any():
+                errors.append(f"track_id={tid}: HPCP contains negative values")
+
+        bpm = feat.bpm
+        if bpm is None:
+            errors.append(f"track_id={tid}: BPM is None")
+        elif not isinstance(bpm, (int, float, np.floating)):
+            errors.append(f"track_id={tid}: BPM is not numeric ({type(bpm).__name__})")
+        elif bpm < 0 or bpm > 400:
+            errors.append(f"track_id={tid}: BPM {bpm:.1f} outside [20, 400]")
+
+        genre = feat.genre
+        if genre is None:
+            errors.append(f"track_id={tid}: genre is None")
+        elif not isinstance(genre, np.ndarray):
+            errors.append(f"track_id={tid}: genre is not ndarray ({type(genre).__name__})")
+        else:
+            if genre.shape != (1280,):
+                errors.append(f"track_id={tid}: genre shape {genre.shape}, expected (1280,)")
+            if not np.isfinite(genre).all():
+                errors.append(f"track_id={tid}: genre contains NaN/Inf")
+            if np.all(genre == 0):
+                errors.append(f"track_id={tid}: genre is all zeros")
+
+    return errors
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

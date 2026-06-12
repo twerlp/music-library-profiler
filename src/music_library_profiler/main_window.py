@@ -48,15 +48,15 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Ready")
 
         #TODO: Replace this with the track similarity button, this is purely for debug purposes
-        self.track_similarity.find_similar_tracks_to("/mnt/c/Users/cooco/Music/SAINT PEPSI - triumph international/SAINT PEPSI - triumph international - 13 p.e.p.s.i contigo..m4a", 50)
-        playlist = self.track_similarity.create_playlist_include_track_direction(
-            source_track_path=Path("/mnt/c/Users/cooco/Music/FM Skyline - EarthSim/FM Skyline - EarthSim - 12 end program.mp3"),
-            # destination_track_path=Path("/home/twerp/Music/Judy Collins - Wind Beneath My Wings/04 - Judy Collins - Cats In The Cradle.mp3"),
-            destination_track_path=Path("/mnt/c/Users/cooco/Music/binary deconstructed - pre Naomi/binary deconstructed - pre Naomi - 06 warm 31824.mp3"),
-            num_tracks=10)
-        print("Generated playlist:")
-        for track in playlist:
-            print(self.database.get_track_metadata_by_id(track)["file_path"])
+        # self.track_similarity.find_similar_tracks_to("/mnt/c/Users/cooco/Music/SAINT PEPSI - triumph international/SAINT PEPSI - triumph international - 13 p.e.p.s.i contigo..m4a", 50)
+        # playlist = self.track_similarity.create_playlist_include_track_direction(
+        #     source_track_path=Path("/mnt/c/Users/cooco/Music/FM Skyline - EarthSim/FM Skyline - EarthSim - 12 end program.mp3"),
+        #     # destination_track_path=Path("/home/twerp/Music/Judy Collins - Wind Beneath My Wings/04 - Judy Collins - Cats In The Cradle.mp3"),
+        #     destination_track_path=Path("/mnt/c/Users/cooco/Music/binary deconstructed - pre Naomi/binary deconstructed - pre Naomi - 06 warm 31824.mp3"),
+        #     num_tracks=10)
+        # print("Generated playlist:")
+        # for track in playlist:
+        #     print(self.database.get_track_metadata_by_id(track)["file_path"])
         # Create menu
         file_menu = self.menuBar().addMenu("File")
         

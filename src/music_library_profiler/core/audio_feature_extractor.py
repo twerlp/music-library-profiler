@@ -10,9 +10,6 @@
 from typing import Optional, Callable, List, Any, Dict, Set, Tuple
 from dataclasses import dataclass
 import librosa
-import os
-os.environ['TF_CPP_MIN_LOG_LEVEL']='3'
-from essentia.standard import MonoLoader, TensorflowPredictEffnetDiscogs # essentia-tensorflow
 import numpy as np
 from pathlib import Path
 import matplotlib.pyplot as plt
@@ -24,6 +21,7 @@ from core.features import Features
 from core.track_similarity import TrackSimilarity
 from core.fingerprint import compute_fingerprint
 from core.embedding_client import EmbeddingClient
+from core.onnx_inference import compute_genre_embeddings, load_onnx_session
 import utils.resource_manager as rm
 
 logger = logging.getLogger(__name__)
@@ -31,7 +29,7 @@ logger = logging.getLogger(__name__)
 CHROMATIC_SCALE = ['C', 'C#', 'D', 'D#', 'E', 'F',
                   'F#', 'G', 'G#', 'A', 'A#', 'B']
 SAMPLING_RATE = 22050
-EMBEDDING_MODEL = rm.project_path("models/discogs-effnet-bs64-1.pb")
+EMBEDDING_MODEL_ONNX = rm.project_path("models/discogs-effnet-bsdynamic-1.onnx")
 
 class AudioFeatureExtractor:
     def __init__(self, 
@@ -48,21 +46,8 @@ class AudioFeatureExtractor:
         self.embedding_client = embedding_client
     
     def find_features_of_list(self,
-                              batch_size: int = 128, 
+                              batch_size: int = 32, 
                               max_workers: int = None) -> Dict[str, Any]:
-        """
-        Extract features for multiple files and store using track_ids.
-        Multicore execution.
-        
-        Args:
-            batch_size: Number of tracks to process before writing to database
-            max_workers: Number of cores to use
-        
-        Returns:
-            Processing data as a dictionary
-                "successful_files": number of files which were successfully stored to the database,
-                "errors": the errors we encountered
-        """
         track_mapping = self.database.get_track_ids_by_paths(self.track_list)
 
         if not track_mapping:
@@ -73,90 +58,175 @@ class AudioFeatureExtractor:
             }
         inverse_mapping = {value: key for key, value in track_mapping.items()}
 
-        # Find missing features
         missing_hpcps, existing_hpcps = self.database.get_missing_features(track_ids=list(track_mapping.values()))
 
         missing_features = missing_hpcps
         existing_features = existing_hpcps
-        # If no features missing, skip feature extraction
         if not missing_features:
             return {
                 "successful_files": existing_features,
                 "errors": []
             }
 
-        logger.info(f"Starting CPU-parallel feature extraction for {len(missing_features)} tracks with {max_workers} workers")
+        total_missing = len(missing_features)
+        missing_list = list(missing_features)
+        errors = []
+        successful_files = existing_hpcps
+        current_feature_batch = {}
+        total_stored = 0
+        cache_hit_count = 0
+        onnx_session = None
 
-        model = TensorflowPredictEffnetDiscogs(graphFilename=str(EMBEDDING_MODEL), output="PartitionedCall:1")
-        loader = MonoLoader()
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Submit HPCP work to the cores
-            future_to_id = {
-                executor.submit(find_features_of_file, inverse_mapping[track_id], model, loader, self.embedding_client): track_id 
-                for track_id in missing_features
-            }
-
-            current_feature_batch = {} # Feature results for the current batch, indexed by file path
-            total_processed = 0 # Total files which successfully gathered HPCP data
-            total_stored = 0 # Total files which successfully stored HPCP data
-            errors = [] # Errors generated during execution
-            successful_files = existing_hpcps # Files that were successfully stored to the database
-
-            for i, future in enumerate(concurrent.futures.as_completed(future_to_id)):
-                track_id = future_to_id[future]
-                if self.progress_callback and i % 10 == 0:
-                    self.progress_callback(i, len(missing_hpcps), f"Processing {inverse_mapping[track_id]}")
-                
+        def _flush_batch():
+            nonlocal current_feature_batch, total_stored, successful_files
+            if current_feature_batch:
                 try:
-                    feature_data = future.result()
-
-                    if feature_data is not None:
-                        current_feature_batch[track_id] = feature_data
-                        total_processed += 1
-                    else:
-                        logger.warning(f"No feature data extracted for {inverse_mapping[track_id]}")
-                        errors.append(f"No feature data: {inverse_mapping[track_id]}")
-
+                    stored = self._store_batch(feature_batch=current_feature_batch)
+                    total_stored += len(stored)
+                    successful_files |= stored
                 except Exception as e:
-                    track_metadata = self.database.get_track_metadata_by_id(track_id)
-                    file_name = track_metadata["file_name"] if track_metadata else "unknown"
-                    error_msg = f"Error processing {file_name}: {e}"
-                    errors.append(error_msg)
-                    logger.exception(error_msg)
+                    logger.exception(f"Error storing batch: {e}")
+                    errors.append(f"Batch store error: {e}")
+                current_feature_batch.clear()
+
+        offset = 0
+        while offset < total_missing:
+            chunk = missing_list[offset:offset + batch_size]
+            audio_cache = {}
+            loaded = 0
+
+            for i, track_id in enumerate(chunk):
+                file_path = inverse_mapping[track_id]
+                if self.progress_callback:
+                    self.progress_callback(offset + i, total_missing, f"Loading {file_path}")
+                try:
+                    audio, sampling_rate = load_audio_file(file_path)
+                    audio_cache[track_id] = (audio, sampling_rate)
+                    loaded += 1
+                except Exception:
+                    logger.warning(f"Failed to load audio for {file_path}")
+
+            tracks_needing_genre = []
+            fingerprint_map = {}
+
+            for i, track_id in enumerate(chunk):
+                if track_id not in audio_cache:
                     continue
+                file_path = inverse_mapping[track_id]
+                audio, sr = audio_cache[track_id]
 
-                if len(current_feature_batch) >= batch_size:
-                    stored_in_batch = set()
+                fingerprint = None
+                if self.embedding_client:
                     try:
-                        stored_in_batch = self._store_batch(feature_batch=current_feature_batch)
-                        total_stored += len(stored_in_batch)
-                        successful_files |= stored_in_batch
+                        fingerprint, _ = compute_fingerprint(audio, sr)
+                    except Exception:
+                        pass
+
+                if fingerprint and self.embedding_client:
+                    if self.progress_callback and i % 10 == 0:
+                        self.progress_callback(offset + i, total_missing, f"Looking up {file_path}")
+                    try:
+                        cached = self.embedding_client.lookup(fingerprint)
+                        if cached:
+                            logger.info(f"Cache hit for {file_path}")
+                            cache_hit_count += 1
+                            current_feature_batch[track_id] = cached
+                            if len(current_feature_batch) >= batch_size:
+                                _flush_batch()
+                            continue
+                    except Exception:
+                        pass
+
+                if fingerprint:
+                    fingerprint_map[track_id] = fingerprint
+                tracks_needing_genre.append(track_id)
+
+            _flush_batch()
+
+            if self.progress_callback:
+                self.progress_callback(offset + loaded, total_missing, f"Cache: {cache_hit_count}, local: {len(tracks_needing_genre)}")
+
+            genre_map = {}
+            if tracks_needing_genre:
+                if onnx_session is None:
+                    onnx_session = load_onnx_session(str(EMBEDDING_MODEL_ONNX))
+                audio_list = [audio_cache[tid][0] for tid in tracks_needing_genre if tid in audio_cache]
+                valid_ids = [tid for tid in tracks_needing_genre if tid in audio_cache]
+                if audio_list:
+                    if self.progress_callback:
+                        self.progress_callback(offset, total_missing, "Computing genre embeddings (ONNX)")
+                    try:
+                        embeddings = compute_genre_embeddings(audio_list, onnx_session)
+                        for tid, emb in zip(valid_ids, embeddings):
+                            genre_map[tid] = emb
                     except Exception as e:
-                        logger.exception(f"Error storing batch: {e}")
-                        errors.append(f"Batch store error: {e}")
-                    current_feature_batch.clear()
-                    logger.debug(f"Processed batch: {i+1}/{len(missing_hpcps)} files, stored {len(stored_in_batch)} tracks' features.")
-        
-        # Store stragglers (final batch) to database
-        if current_feature_batch:
-            stored_in_batch = set()
-            try:
-                stored_in_batch = self._store_batch(feature_batch=current_feature_batch)
-                total_stored += len(stored_in_batch)
-                successful_files |= stored_in_batch
-            except Exception as e:
-                logger.exception(f"Error storing final batch: {e}")
-                errors.append(f"Final batch store error: {e}")
-            logger.debug(f"Processed final batch: stored {len(stored_in_batch)} tracks' features")
+                        logger.exception(f"ONNX inference failed: {e}")
 
-        logger.info(f"Feature extraction complete. Processed: {total_processed}, Stored: {total_stored}, Errors: {len(errors)}")
+            remaining = [tid for tid in tracks_needing_genre if tid in audio_cache]
+            if remaining:
+                if self.progress_callback:
+                    self.progress_callback(offset, total_missing, f"HPCP + BPM: {len(remaining)} tracks")
 
-        if errors:
-            logger.warning(f"Encountered {len(errors)} errors during HPCP extraction")
+                with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    future_to_id = {}
+                    for track_id in remaining:
+                        audio, sr = audio_cache[track_id]
+                        genre = genre_map.get(track_id)
+                        future = executor.submit(
+                            extract_hpcp_bpm, audio, sr, genre, inverse_mapping[track_id],
+                        )
+                        future_to_id[future] = track_id
+
+                    completed = 0
+                    for future in concurrent.futures.as_completed(future_to_id):
+                        track_id = future_to_id[future]
+                        file_path = inverse_mapping[track_id]
+
+                        try:
+                            feature_data = future.result()
+                            if feature_data is not None:
+                                current_feature_batch[track_id] = feature_data
+
+                                if self.embedding_client and track_id in fingerprint_map:
+                                    try:
+                                        self.embedding_client.upload(
+                                            fingerprint_map[track_id], feature_data,
+                                        )
+                                    except Exception:
+                                        pass
+                            else:
+                                logger.warning(f"No feature data extracted for {file_path}")
+                                errors.append(f"No feature data: {file_path}")
+                        except Exception as e:
+                            track_metadata = self.database.get_track_metadata_by_id(track_id)
+                            file_name = track_metadata["file_name"] if track_metadata else "unknown"
+                            error_msg = f"Error processing {file_name}: {e}"
+                            errors.append(error_msg)
+                            logger.exception(error_msg)
+                            continue
+
+                        completed += 1
+                        if self.progress_callback and completed % 10 == 0:
+                            self.progress_callback(offset + completed, total_missing, f"HPCP + BPM: {file_path}")
+
+                        if len(current_feature_batch) >= batch_size:
+                            _flush_batch()
+
+            _flush_batch()
+            audio_cache.clear()
+            fingerprint_map.clear()
+            genre_map.clear()
+
+            offset += len(chunk)
 
         if self.progress_callback:
-            self.progress_callback(len(missing_hpcps), len(missing_hpcps), "HPCP extraction complete!")
+            self.progress_callback(total_missing, total_missing, "Feature extraction complete!")
+
+        total_processed = total_stored + cache_hit_count
+        logger.info(f"Feature extraction complete. Processed: {total_processed}, Stored: {total_stored}, Cache hits: {cache_hit_count}, Errors: {len(errors)}")
+
+        if errors:
+            logger.warning(f"Encountered {len(errors)} errors during feature extraction")
 
         return {
             "successful_files": successful_files,
@@ -184,39 +254,20 @@ class AudioFeatureExtractor:
             return successful_tracks
 
 
-def find_features_of_file(audio_file_path: Path, model, loader, embedding_client: EmbeddingClient = None) -> Features:
-    audio_time_series, sampling_rate = load_audio_file(audio_file_path)
-
-    fingerprint = None
-    if embedding_client:
-        try:
-            fingerprint, _ = compute_fingerprint(audio_time_series, sampling_rate)
-        except Exception:
-            pass
-
-    if fingerprint and embedding_client:
-        try:
-            cached = embedding_client.lookup(fingerprint)
-            if cached:
-                logger.info(f"Cache hit for {audio_file_path.name}")
-                return cached
-        except Exception:
-            pass
+def extract_hpcp_bpm(
+    audio_time_series: np.ndarray,
+    sampling_rate: int,
+    genre: np.ndarray | None,
+    audio_file_path: Path,
+) -> Features | None:
+    if genre is None:
+        return None
 
     audio_time_series_clean, _ = librosa.effects.trim(audio_time_series, top_db=20)
     hpcp = find_hpcp(audio_time_series=audio_time_series_clean, sampling_rate=sampling_rate)
-    bpm, beat_markers = find_bpm(audio_time_series=audio_time_series_clean, sampling_rate=sampling_rate)
-    genre = find_genre(audio_file_path=audio_file_path, model=model, loader=loader)
+    bpm, _ = find_bpm(audio_time_series=audio_time_series_clean, sampling_rate=sampling_rate)
 
-    features = Features(hpcp=hpcp, bpm=float(bpm), genre=genre)
-
-    if fingerprint and embedding_client:
-        try:
-            embedding_client.upload(fingerprint, features)
-        except Exception:
-            pass
-
-    return features
+    return Features(hpcp=hpcp, bpm=float(bpm), genre=genre)
 
 # TODO: Consider xenharmonics/microtonal music, unconventional scales. I want a system that works for everything! Not now, not now.
 def find_hpcp(audio_time_series: np.ndarray, sampling_rate: int) -> np.ndarray:
@@ -264,16 +315,6 @@ def find_bpm(audio_time_series: np.ndarray, sampling_rate: int) -> Tuple[np.floa
     # Potential improvement: use bpm gathered from metadata stage to estimate bpm
     bpm, beat_markers = librosa.beat.beat_track(y=audio_time_series, sr=sampling_rate)
     return bpm, beat_markers
-
-# https://essentia.upf.edu/models.html
-def find_genre(audio_file_path: Path, model, loader) -> np.ndarray:
-    loader.configure(filename=str(audio_file_path), sampleRate=16000, resampleQuality=4)
-    audio = loader()
-    embeddings = model(audio)
-    if embeddings.ndim == 1:
-        embeddings = embeddings.reshape(1, -1)
-    flattened_embeddings = np.mean(embeddings, axis=0)
-    return flattened_embeddings
 
 def load_audio_file(audio_file_path: Path):
     """

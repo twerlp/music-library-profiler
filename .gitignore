@@ -220,3 +220,6 @@ indexes/
 
 # Developer API keys and secrets
 secrets/
+
+# cuda
+cuda-repo-wsl-ubuntu-13-3-local_13.3.0-1_amd64.deb

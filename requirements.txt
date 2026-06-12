@@ -7,3 +7,4 @@ faiss-cpu
 essentia-tensorflow
 matplotlib
 requests
+onnxruntime-gpu
