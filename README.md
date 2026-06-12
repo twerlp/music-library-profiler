@@ -21,6 +21,7 @@ Placeholder
 ### Executing program
 
 * Placeholder
+* scanning 1361 songs on laptop with i9 14900HX, RTX 4080 (unused?), 32 GB DDR5 took 27 minutes
 
 ## Help
 
